@@ -6,6 +6,7 @@ import { CreateInventoryCategoryDto } from './dto/create-inventory-category.dto'
 import { UpdateInventoryCategoryDto } from './dto/update-inventory-category.dto';
 import { QueryCategoriesDto } from './dto/query-categories.dto';
 import { PaginatedResult } from '../../common/interfaces/paginated-result.interface';
+import { buildWhere } from '../../common/helpers/query.helper';
 
 @Injectable()
 export class InventoryService {
@@ -28,16 +29,22 @@ export class InventoryService {
   }
 
   async findAll(queryDto: QueryCategoriesDto): Promise<PaginatedResult<InventoryCategory>> {
-    const { page = 1, limit = 10, name, description } = queryDto;
+    const { 
+      page = 1, 
+      limit = 10, 
+      sortBy = 'name', 
+      order = 'ASC', 
+      name, 
+      description 
+    } = queryDto;
+    
     const skip = (page - 1) * limit;
 
-    const where: any = {};
-    if (name) where.name = ILike(`%${name}%`);
-    if (description) where.description = ILike(`%${description}%`);
+    const where = buildWhere(queryDto, ['name', 'description']);
 
     const [data, total] = await this.categoryRepository.findAndCount({
       where,
-      order: { name: 'ASC' },
+      order: { [sortBy]: order },
       take: limit,
       skip,
     });
