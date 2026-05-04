@@ -3,7 +3,9 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
+import { InventoryModule } from './modules/inventory/inventory.module';
 import { User } from './modules/users/entities/user.entity';
+import { InventoryCategory } from './modules/inventory/entities/inventory-category.entity';
 
 @Module({
   imports: [
@@ -14,18 +16,19 @@ import { User } from './modules/users/entities/user.entity';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
-        type: configService.get<'mysql' | 'postgres'>('DB_TYPE', 'mysql'),
+        type: configService.get<'mysql' | 'postgres'>('DB_TYPE', 'postgres') as any,
         host: configService.get<string>('DB_HOST'),
         port: configService.get<number>('DB_PORT'),
         username: configService.get<string>('DB_USERNAME'),
         password: configService.get<string>('DB_PASSWORD'),
         database: configService.get<string>('DB_DATABASE'),
-        entities: [User],
-        synchronize: true, // Only for development, as per user rule and best practices
+        entities: [User, InventoryCategory],
+        synchronize: true, // Only for development
       }),
     }),
     AuthModule,
     UsersModule,
+    InventoryModule,
   ],
 })
 export class AppModule {}
