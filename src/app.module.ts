@@ -6,6 +6,7 @@ import { UsersModule } from './modules/users/users.module';
 import { InventoryModule } from './modules/inventory/inventory.module';
 import { User } from './modules/users/entities/user.entity';
 import { InventoryCategory } from './modules/inventory/entities/inventory-category.entity';
+import { Product } from './modules/inventory/entities/product.entity';
 
 @Module({
   imports: [
@@ -22,7 +23,7 @@ import { InventoryCategory } from './modules/inventory/entities/inventory-catego
         username: configService.get<string>('DB_USERNAME'),
         password: configService.get<string>('DB_PASSWORD'),
         database: configService.get<string>('DB_DATABASE'),
-        entities: [User, InventoryCategory],
+        entities: [User, InventoryCategory, Product],
         synchronize: true, // Only for development
       }),
     }),

@@ -14,38 +14,73 @@ import { InventoryService } from './inventory.service';
 import { CreateInventoryCategoryDto } from './dto/create-inventory-category.dto';
 import { UpdateInventoryCategoryDto } from './dto/update-inventory-category.dto';
 import { QueryCategoriesDto } from './dto/query-categories.dto';
+import { CreateProductDto } from './dto/create-product.dto';
+import { UpdateProductDto } from './dto/update-product.dto';
+import { QueryProductsDto } from './dto/query-products.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
-@Controller('inventory/categories')
+@Controller('inventory')
 @UseGuards(JwtAuthGuard)
 export class InventoryController {
   constructor(private readonly inventoryService: InventoryService) {}
 
-  @Post()
-  create(@Body() createDto: CreateInventoryCategoryDto) {
+  // --- Category Endpoints ---
+
+  @Post('categories')
+  createCategory(@Body() createDto: CreateInventoryCategoryDto) {
     return this.inventoryService.create(createDto);
   }
 
-  @Get()
-  findAll(@Query() queryDto: QueryCategoriesDto) {
+  @Get('categories')
+  findAllCategories(@Query() queryDto: QueryCategoriesDto) {
     return this.inventoryService.findAll(queryDto);
   }
 
-  @Get(':id')
-  findOne(@Param('id', ParseUUIDPipe) id: string) {
+  @Get('categories/:id')
+  findOneCategory(@Param('id', ParseUUIDPipe) id: string) {
     return this.inventoryService.findOne(id);
   }
 
-  @Patch(':id')
-  update(
+  @Patch('categories/:id')
+  updateCategory(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() updateDto: UpdateInventoryCategoryDto,
   ) {
     return this.inventoryService.update(id, updateDto);
   }
 
-  @Delete(':id')
-  remove(@Param('id', ParseUUIDPipe) id: string) {
+  @Delete('categories/:id')
+  removeCategory(@Param('id', ParseUUIDPipe) id: string) {
     return this.inventoryService.remove(id);
+  }
+
+  // --- Product Endpoints ---
+
+  @Post('products')
+  createProduct(@Body() createDto: CreateProductDto) {
+    return this.inventoryService.createProduct(createDto);
+  }
+
+  @Get('products')
+  findAllProducts(@Query() queryDto: QueryProductsDto) {
+    return this.inventoryService.findAllProducts(queryDto);
+  }
+
+  @Get('products/:id')
+  findOneProduct(@Param('id', ParseUUIDPipe) id: string) {
+    return this.inventoryService.findOneProduct(id);
+  }
+
+  @Patch('products/:id')
+  updateProduct(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() updateDto: UpdateProductDto,
+  ) {
+    return this.inventoryService.updateProduct(id, updateDto);
+  }
+
+  @Delete('products/:id')
+  removeProduct(@Param('id', ParseUUIDPipe) id: string) {
+    return this.inventoryService.removeProduct(id);
   }
 }
