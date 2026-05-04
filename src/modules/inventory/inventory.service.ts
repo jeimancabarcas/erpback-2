@@ -1,9 +1,11 @@
 import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, ILike } from 'typeorm';
 import { InventoryCategory } from './entities/inventory-category.entity';
 import { CreateInventoryCategoryDto } from './dto/create-inventory-category.dto';
 import { UpdateInventoryCategoryDto } from './dto/update-inventory-category.dto';
+import { QueryCategoriesDto } from './dto/query-categories.dto';
+import { PaginatedResult } from '../../common/interfaces/paginated-result.interface';
 
 @Injectable()
 export class InventoryService {
@@ -25,10 +27,30 @@ export class InventoryService {
     return this.categoryRepository.save(category);
   }
 
-  async findAll(): Promise<InventoryCategory[]> {
-    return this.categoryRepository.find({
+  async findAll(queryDto: QueryCategoriesDto): Promise<PaginatedResult<InventoryCategory>> {
+    const { page = 1, limit = 10, name, description } = queryDto;
+    const skip = (page - 1) * limit;
+
+    const where: any = {};
+    if (name) where.name = ILike(`%${name}%`);
+    if (description) where.description = ILike(`%${description}%`);
+
+    const [data, total] = await this.categoryRepository.findAndCount({
+      where,
       order: { name: 'ASC' },
+      take: limit,
+      skip,
     });
+
+    return {
+      data,
+      meta: {
+        total,
+        page,
+        lastPage: Math.ceil(total / limit),
+        limit,
+      },
+    };
   }
 
   async findOne(id: string): Promise<InventoryCategory> {
