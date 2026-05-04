@@ -4,9 +4,11 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { InventoryModule } from './modules/inventory/inventory.module';
+import { SuppliersModule } from './modules/suppliers/suppliers.module';
 import { User } from './modules/users/entities/user.entity';
 import { InventoryCategory } from './modules/inventory/entities/inventory-category.entity';
 import { Product } from './modules/inventory/entities/product.entity';
+import { Supplier } from './modules/suppliers/entities/supplier.entity';
 
 @Module({
   imports: [
@@ -23,13 +25,14 @@ import { Product } from './modules/inventory/entities/product.entity';
         username: configService.get<string>('DB_USERNAME'),
         password: configService.get<string>('DB_PASSWORD'),
         database: configService.get<string>('DB_DATABASE'),
-        entities: [User, InventoryCategory, Product],
+        entities: [User, InventoryCategory, Product, Supplier],
         synchronize: true, // Only for development
       }),
     }),
     AuthModule,
     UsersModule,
     InventoryModule,
+    SuppliersModule,
   ],
 })
 export class AppModule {}
