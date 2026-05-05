@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, ILike } from 'typeorm';
+import { Repository, ILike, MoreThan, EntityManager } from 'typeorm';
 import { InventoryCategory } from './entities/inventory-category.entity';
 import { Product } from './entities/product.entity';
 import { InventoryBatch } from './entities/inventory-batch.entity';
@@ -208,5 +208,35 @@ export class InventoryService {
 
     await this.batchRepository.save(batch);
     return this.productRepository.save(product);
+  }
+
+  async consumeStock(productId: string, quantity: number, manager?: EntityManager): Promise<void> {
+    const productRepo = manager ? manager.getRepository(Product) : this.productRepository;
+    const batchRepo = manager ? manager.getRepository(InventoryBatch) : this.batchRepository;
+
+    const product = await productRepo.findOne({ where: { id: productId } });
+    if (!product) throw new NotFoundException(`Producto no encontrado`);
+    
+    if (product.currentStock < quantity) {
+      throw new Error(`Stock insuficiente para el producto ${product.name}. Disponible: ${product.currentStock}`);
+    }
+
+    product.currentStock -= quantity;
+    await productRepo.save(product);
+
+    let remainingToConsume = quantity;
+    const batches = await batchRepo.find({
+      where: { productId, remainingQuantity: MoreThan(0) },
+      order: { createdAt: 'ASC' },
+    });
+
+    for (const batch of batches) {
+      if (remainingToConsume <= 0) break;
+
+      const toConsumeFromBatch = Math.min(batch.remainingQuantity, remainingToConsume);
+      batch.remainingQuantity -= toConsumeFromBatch;
+      remainingToConsume -= toConsumeFromBatch;
+      await batchRepo.save(batch);
+    }
   }
 }

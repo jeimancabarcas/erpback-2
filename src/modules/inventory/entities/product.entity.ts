@@ -24,6 +24,9 @@ export class Product {
   @Column({ type: 'decimal', precision: 12, scale: 2, default: 0 })
   averagePurchasePrice: number;
 
+  @Column({ type: 'decimal', precision: 12, scale: 2, default: 0 })
+  sellingPrice: number;
+
   @ManyToOne(() => InventoryCategory, { onDelete: 'SET NULL' })
   @JoinColumn({ name: 'category_id' })
   category: InventoryCategory;

@@ -15,6 +15,9 @@ import { PurchaseOrderItem } from './modules/purchase-orders/entities/purchase-o
 import { InventoryBatch } from './modules/inventory/entities/inventory-batch.entity';
 import { CustomersModule } from './modules/customers/customers.module';
 import { Customer } from './modules/customers/entities/customer.entity';
+import { SalesModule } from './modules/sales/sales.module';
+import { Invoice } from './modules/sales/entities/invoice.entity';
+import { InvoiceItem } from './modules/sales/entities/invoice-item.entity';
 
 @Module({
   imports: [
@@ -31,7 +34,7 @@ import { Customer } from './modules/customers/entities/customer.entity';
         username: configService.get<string>('DB_USERNAME'),
         password: configService.get<string>('DB_PASSWORD'),
         database: configService.get<string>('DB_DATABASE'),
-        entities: [User, InventoryCategory, Product, Supplier, PurchaseOrder, PurchaseOrderItem, InventoryBatch, Customer],
+        entities: [User, InventoryCategory, Product, Supplier, PurchaseOrder, PurchaseOrderItem, InventoryBatch, Customer, Invoice, InvoiceItem],
         synchronize: true, // Only for development
       }),
     }),
@@ -41,6 +44,7 @@ import { Customer } from './modules/customers/entities/customer.entity';
     SuppliersModule,
     PurchaseOrdersModule,
     CustomersModule,
+    SalesModule,
   ],
 })
 export class AppModule {}
