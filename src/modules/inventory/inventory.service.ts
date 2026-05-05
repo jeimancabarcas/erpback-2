@@ -42,21 +42,27 @@ export class InventoryService {
       page = 1, 
       limit = 10, 
       sortBy = 'name', 
-      order = 'ASC', 
-      name, 
-      description 
+      order = 'ASC',
     } = queryDto;
     
     const skip = (page - 1) * limit;
 
-    const where = buildWhere(queryDto, ['name', 'description']);
+    const queryBuilder = this.categoryRepository.createQueryBuilder('category')
+      .loadRelationCountAndMap('category.productsCount', 'category.products');
 
-    const [data, total] = await this.categoryRepository.findAndCount({
-      where,
-      order: { [sortBy]: order },
-      take: limit,
-      skip,
-    });
+    if (queryDto.name) {
+      queryBuilder.andWhere('category.name ILIKE :name', { name: `%${queryDto.name}%` });
+    }
+
+    if (queryDto.description) {
+      queryBuilder.andWhere('category.description ILIKE :description', { description: `%${queryDto.description}%` });
+    }
+
+    const [data, total] = await queryBuilder
+      .orderBy(`category.${sortBy}`, order as 'ASC' | 'DESC')
+      .skip(skip)
+      .take(limit)
+      .getManyAndCount();
 
     return {
       data,
