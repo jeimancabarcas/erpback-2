@@ -18,8 +18,8 @@ export class CreateInvoiceDto {
   @IsNotEmpty({ message: 'El cliente es obligatorio' })
   customerId: string;
 
-  @IsNotEmpty({ message: 'La fecha es obligatoria' })
-  date: Date;
+  @IsOptional()
+  date?: Date;
 
   @IsArray()
   @ValidateNested({ each: true })
