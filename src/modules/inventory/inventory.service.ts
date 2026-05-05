@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, ILike } from 'typeorm';
 import { InventoryCategory } from './entities/inventory-category.entity';
 import { Product } from './entities/product.entity';
+import { InventoryBatch } from './entities/inventory-batch.entity';
 import { CreateInventoryCategoryDto } from './dto/create-inventory-category.dto';
 import { UpdateInventoryCategoryDto } from './dto/update-inventory-category.dto';
 import { QueryCategoriesDto } from './dto/query-categories.dto';
@@ -19,6 +20,8 @@ export class InventoryService {
     private readonly categoryRepository: Repository<InventoryCategory>,
     @InjectRepository(Product)
     private readonly productRepository: Repository<Product>,
+    @InjectRepository(InventoryBatch)
+    private readonly batchRepository: Repository<InventoryBatch>,
   ) {}
 
   async create(createDto: CreateInventoryCategoryDto): Promise<InventoryCategory> {
@@ -148,6 +151,13 @@ export class InventoryService {
     return product;
   }
 
+  async findProductBatches(productId: string): Promise<InventoryBatch[]> {
+    return this.batchRepository.find({
+      where: { productId },
+      order: { createdAt: 'DESC' },
+    });
+  }
+
   async updateProduct(id: string, updateDto: UpdateProductDto): Promise<Product> {
     const product = await this.findOneProduct(id);
 
@@ -163,5 +173,34 @@ export class InventoryService {
   async removeProduct(id: string): Promise<void> {
     const product = await this.findOneProduct(id);
     await this.productRepository.remove(product);
+  }
+
+  async updateStock(productId: string, quantity: number, price: number, purchaseOrderId?: string): Promise<Product> {
+    const product = await this.findOneProduct(productId);
+    
+    const currentStock = Number(product.currentStock);
+    const currentAvgPrice = Number(product.averagePurchasePrice);
+    const newQuantity = Number(quantity);
+    const newPrice = Number(price);
+
+    const totalStock = currentStock + newQuantity;
+    const newAvgPrice = totalStock > 0 
+      ? ((currentStock * currentAvgPrice) + (newQuantity * newPrice)) / totalStock
+      : newPrice;
+
+    product.currentStock = totalStock;
+    product.averagePurchasePrice = Number(newAvgPrice.toFixed(2));
+
+    // Crear el lote de inventario
+    const batch = this.batchRepository.create({
+      productId,
+      initialQuantity: newQuantity,
+      remainingQuantity: newQuantity,
+      purchasePrice: newPrice,
+      purchaseOrderId,
+    });
+
+    await this.batchRepository.save(batch);
+    return this.productRepository.save(product);
   }
 }

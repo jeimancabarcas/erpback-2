@@ -71,6 +71,11 @@ export class InventoryController {
     return this.inventoryService.findOneProduct(id);
   }
 
+  @Get('products/:id/batches')
+  findProductBatches(@Param('id', ParseUUIDPipe) id: string) {
+    return this.inventoryService.findProductBatches(id);
+  }
+
   @Patch('products/:id')
   updateProduct(
     @Param('id', ParseUUIDPipe) id: string,

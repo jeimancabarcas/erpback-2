@@ -12,6 +12,7 @@ import { Product } from './modules/inventory/entities/product.entity';
 import { Supplier } from './modules/suppliers/entities/supplier.entity';
 import { PurchaseOrder } from './modules/purchase-orders/entities/purchase-order.entity';
 import { PurchaseOrderItem } from './modules/purchase-orders/entities/purchase-order-item.entity';
+import { InventoryBatch } from './modules/inventory/entities/inventory-batch.entity';
 
 @Module({
   imports: [
@@ -28,7 +29,7 @@ import { PurchaseOrderItem } from './modules/purchase-orders/entities/purchase-o
         username: configService.get<string>('DB_USERNAME'),
         password: configService.get<string>('DB_PASSWORD'),
         database: configService.get<string>('DB_DATABASE'),
-        entities: [User, InventoryCategory, Product, Supplier, PurchaseOrder, PurchaseOrderItem],
+        entities: [User, InventoryCategory, Product, Supplier, PurchaseOrder, PurchaseOrderItem, InventoryBatch],
         synchronize: true, // Only for development
       }),
     }),

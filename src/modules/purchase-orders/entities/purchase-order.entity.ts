@@ -6,6 +6,7 @@ export enum PurchaseOrderStatus {
   DRAFT = 'DRAFT',
   SENT = 'SENT',
   IN_TRANSIT = 'IN_TRANSIT',
+  COMPLETED = 'COMPLETED',
   CANCELLED = 'CANCELLED',
 }
 
@@ -39,6 +40,9 @@ export class PurchaseOrder {
 
   @OneToMany(() => PurchaseOrderItem, (item) => item.purchaseOrder, { cascade: true })
   items: PurchaseOrderItem[];
+
+  @Column({ type: 'text', name: 'receipt_url', nullable: true })
+  receiptUrl: string | null;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

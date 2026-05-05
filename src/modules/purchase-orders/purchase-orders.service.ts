@@ -8,6 +8,7 @@ import { QueryPurchaseOrdersDto } from './dto/query-purchase-orders.dto';
 import { UpdatePurchaseOrderStatusDto } from './dto/update-purchase-order-status.dto';
 import { PaginatedResult } from '../../common/interfaces/paginated-result.interface';
 import { buildWhere } from '../../common/helpers/query.helper';
+import { InventoryService } from '../inventory/inventory.service';
 
 @Injectable()
 export class PurchaseOrdersService {
@@ -16,6 +17,7 @@ export class PurchaseOrdersService {
     private readonly purchaseOrderRepository: Repository<PurchaseOrder>,
     @InjectRepository(PurchaseOrderItem)
     private readonly purchaseOrderItemRepository: Repository<PurchaseOrderItem>,
+    private readonly inventoryService: InventoryService,
   ) { }
 
   async create(createDto: CreatePurchaseOrderDto): Promise<PurchaseOrder> {
@@ -100,12 +102,23 @@ export class PurchaseOrdersService {
 
   async updateStatus(id: string, updateStatusDto: UpdatePurchaseOrderStatusDto): Promise<PurchaseOrder> {
     const order = await this.findOne(id);
-
-    // Aquí se podrían añadir validaciones de transición de estados si fuera necesario
-    // Por ejemplo: no permitir pasar de CANCELLED a SENT
+    const previousStatus = order.status;
 
     order.status = updateStatusDto.status;
-    return this.purchaseOrderRepository.save(order);
+    if (updateStatusDto.receiptUrl) {
+      order.receiptUrl = updateStatusDto.receiptUrl;
+    }
+
+    const savedOrder = await this.purchaseOrderRepository.save(order);
+
+    // If changing to COMPLETED for the first time, update stock
+    if (updateStatusDto.status === PurchaseOrderStatus.COMPLETED && previousStatus !== PurchaseOrderStatus.COMPLETED) {
+      for (const item of order.items) {
+        await this.inventoryService.updateStock(item.productId, item.quantity, item.price, order.id);
+      }
+    }
+
+    return savedOrder;
   }
 
   async remove(id: string): Promise<void> {
