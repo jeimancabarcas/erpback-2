@@ -13,6 +13,8 @@ import { Supplier } from './modules/suppliers/entities/supplier.entity';
 import { PurchaseOrder } from './modules/purchase-orders/entities/purchase-order.entity';
 import { PurchaseOrderItem } from './modules/purchase-orders/entities/purchase-order-item.entity';
 import { InventoryBatch } from './modules/inventory/entities/inventory-batch.entity';
+import { CustomersModule } from './modules/customers/customers.module';
+import { Customer } from './modules/customers/entities/customer.entity';
 
 @Module({
   imports: [
@@ -29,7 +31,7 @@ import { InventoryBatch } from './modules/inventory/entities/inventory-batch.ent
         username: configService.get<string>('DB_USERNAME'),
         password: configService.get<string>('DB_PASSWORD'),
         database: configService.get<string>('DB_DATABASE'),
-        entities: [User, InventoryCategory, Product, Supplier, PurchaseOrder, PurchaseOrderItem, InventoryBatch],
+        entities: [User, InventoryCategory, Product, Supplier, PurchaseOrder, PurchaseOrderItem, InventoryBatch, Customer],
         synchronize: true, // Only for development
       }),
     }),
@@ -38,6 +40,7 @@ import { InventoryBatch } from './modules/inventory/entities/inventory-batch.ent
     InventoryModule,
     SuppliersModule,
     PurchaseOrdersModule,
+    CustomersModule,
   ],
 })
 export class AppModule {}
