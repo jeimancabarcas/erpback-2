@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsString, MinLength } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsOptional, IsString, MinLength } from 'class-validator';
 
 export class CreateSupplierDto {
   @IsString({ message: 'El NIT debe ser una cadena de texto' })
@@ -17,4 +17,8 @@ export class CreateSupplierDto {
   @IsString({ message: 'El teléfono debe ser una cadena de texto' })
   @IsNotEmpty({ message: 'El teléfono es obligatorio' })
   phone: string;
+
+  @IsEmail({}, { message: 'El correo electrónico no es válido' })
+  @IsOptional()
+  email?: string;
 }

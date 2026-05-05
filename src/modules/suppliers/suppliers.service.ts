@@ -32,7 +32,7 @@ export class SuppliersService {
     const { page = 1, limit = 10, sortBy = 'name', order = 'ASC' } = queryDto;
     const skip = (page - 1) * limit;
 
-    const where = buildWhere(queryDto, ['name', 'nit']);
+    const where = buildWhere(queryDto, ['name', 'nit', 'email']);
 
     const [data, total] = await this.supplierRepository.findAndCount({
       where,

@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { PurchaseOrder, PurchaseOrderStatus } from './entities/purchase-order.entity';
+import { PurchaseOrderItem } from './entities/purchase-order-item.entity';
 import { CreatePurchaseOrderDto } from './dto/create-purchase-order.dto';
 import { QueryPurchaseOrdersDto } from './dto/query-purchase-orders.dto';
 import { UpdatePurchaseOrderStatusDto } from './dto/update-purchase-order-status.dto';
@@ -13,7 +14,9 @@ export class PurchaseOrdersService {
   constructor(
     @InjectRepository(PurchaseOrder)
     private readonly purchaseOrderRepository: Repository<PurchaseOrder>,
-  ) {}
+    @InjectRepository(PurchaseOrderItem)
+    private readonly purchaseOrderItemRepository: Repository<PurchaseOrderItem>,
+  ) { }
 
   async create(createDto: CreatePurchaseOrderDto): Promise<PurchaseOrder> {
     if (!createDto.items || createDto.items.length === 0) {
@@ -45,10 +48,8 @@ export class PurchaseOrdersService {
     order.orderDate = new Date(updateDto.orderDate);
     order.observations = updateDto.observations ?? null;
 
-    // Limpiar items anteriores manualmente para evitar duplicados/huérfanos
-    // ya que quitamos orphanRemoval por compatibilidad
-    order.items = [];
-    await this.purchaseOrderRepository.save(order);
+    // Limpiar items anteriores mediante delete directo para evitar errores de orphanRemoval
+    await this.purchaseOrderItemRepository.delete({ purchaseOrderId: id });
 
     // Asignamos los nuevos items
     order.items = updateDto.items.map(item => ({
@@ -99,21 +100,21 @@ export class PurchaseOrdersService {
 
   async updateStatus(id: string, updateStatusDto: UpdatePurchaseOrderStatusDto): Promise<PurchaseOrder> {
     const order = await this.findOne(id);
-    
+
     // Aquí se podrían añadir validaciones de transición de estados si fuera necesario
     // Por ejemplo: no permitir pasar de CANCELLED a SENT
-    
+
     order.status = updateStatusDto.status;
     return this.purchaseOrderRepository.save(order);
   }
 
   async remove(id: string): Promise<void> {
     const order = await this.findOne(id);
-    
+
     if (order.status !== PurchaseOrderStatus.DRAFT) {
       throw new BadRequestException('Solo se pueden eliminar órdenes en estado BORRADOR');
     }
-    
+
     await this.purchaseOrderRepository.remove(order);
   }
 }

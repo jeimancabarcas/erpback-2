@@ -17,6 +17,9 @@ export class Supplier {
   @Column()
   phone: string;
 
+  @Column({ nullable: true })
+  email: string;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 
