@@ -36,6 +36,11 @@ export class CustomersController {
     return this.customersService.findOne(id);
   }
 
+  @Get(':id/stats')
+  getStats(@Param('id', ParseUUIDPipe) id: string) {
+    return this.customersService.getStats(id);
+  }
+
   @Patch(':id')
   update(
     @Param('id', ParseUUIDPipe) id: string,

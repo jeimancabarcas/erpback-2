@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, ConflictException } from '@nestjs/common
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Customer } from './entities/customer.entity';
+import { Invoice } from '../sales/entities/invoice.entity';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
 import { QueryCustomersDto } from './dto/query-customers.dto';
@@ -13,7 +14,26 @@ export class CustomersService {
   constructor(
     @InjectRepository(Customer)
     private readonly customerRepository: Repository<Customer>,
+    @InjectRepository(Invoice)
+    private readonly invoiceRepository: Repository<Invoice>,
   ) {}
+
+  async getStats(id: string) {
+    const customer = await this.findOne(id);
+    
+    const stats = await this.invoiceRepository
+      .createQueryBuilder('invoice')
+      .select('COUNT(invoice.id)', 'invoiceCount')
+      .addSelect('SUM(invoice.totalAmount)', 'totalInvoiced')
+      .where('invoice.customer_id = :id', { id })
+      .getRawOne();
+
+    return {
+      customer,
+      totalInvoiced: Number(stats.totalInvoiced) || 0,
+      invoiceCount: Number(stats.invoiceCount) || 0,
+    };
+  }
 
   async create(createDto: CreateCustomerDto): Promise<Customer> {
     const existing = await this.customerRepository.findOne({
