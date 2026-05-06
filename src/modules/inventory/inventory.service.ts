@@ -184,30 +184,25 @@ export class InventoryService {
   async updateStock(productId: string, quantity: number, price: number, purchaseOrderId?: string): Promise<Product> {
     const product = await this.findOneProduct(productId);
     
-    const currentStock = Number(product.currentStock);
-    const currentAvgPrice = Number(product.averagePurchasePrice);
-    const newQuantity = Number(quantity);
-    const newPrice = Number(price);
-
-    const totalStock = currentStock + newQuantity;
-    const newAvgPrice = totalStock > 0 
-      ? ((currentStock * currentAvgPrice) + (newQuantity * newPrice)) / totalStock
-      : newPrice;
-
-    product.currentStock = totalStock;
-    product.averagePurchasePrice = Number(newAvgPrice.toFixed(2));
-
     // Crear el lote de inventario
     const batch = this.batchRepository.create({
       productId,
-      initialQuantity: newQuantity,
-      remainingQuantity: newQuantity,
-      purchasePrice: newPrice,
+      initialQuantity: quantity,
+      remainingQuantity: quantity,
+      purchasePrice: price,
       purchaseOrderId,
     });
 
     await this.batchRepository.save(batch);
-    return this.productRepository.save(product);
+
+    // Actualizar stock total
+    product.currentStock = Number(product.currentStock) + Number(quantity);
+    await this.productRepository.save(product);
+
+    // Recalcular precio promedio basado en lotes con stock
+    await this.recalculateAveragePrice(productId);
+
+    return this.findOneProduct(productId);
   }
 
   async consumeStock(productId: string, quantity: number, manager?: EntityManager): Promise<void> {
@@ -221,7 +216,7 @@ export class InventoryService {
       throw new Error(`Stock insuficiente para el producto ${product.name}. Disponible: ${product.currentStock}`);
     }
 
-    product.currentStock -= quantity;
+    product.currentStock = Number(product.currentStock) - Number(quantity);
     await productRepo.save(product);
 
     let remainingToConsume = quantity;
@@ -238,5 +233,35 @@ export class InventoryService {
       remainingToConsume -= toConsumeFromBatch;
       await batchRepo.save(batch);
     }
+
+    // Recalcular precio promedio después de consumir lotes
+    await this.recalculateAveragePrice(productId, manager);
+  }
+
+  private async recalculateAveragePrice(productId: string, manager?: EntityManager): Promise<void> {
+    const productRepo = manager ? manager.getRepository(Product) : this.productRepository;
+    const batchRepo = manager ? manager.getRepository(InventoryBatch) : this.batchRepository;
+
+    const batches = await batchRepo.find({
+      where: { productId, remainingQuantity: MoreThan(0) },
+    });
+
+    if (batches.length === 0) return;
+
+    let totalRemaining = 0;
+    let totalValue = 0;
+
+    for (const batch of batches) {
+      const remaining = Number(batch.remainingQuantity);
+      const price = Number(batch.purchasePrice);
+      totalRemaining += remaining;
+      totalValue += remaining * price;
+    }
+
+    const avgPrice = totalRemaining > 0 ? totalValue / totalRemaining : 0;
+
+    await productRepo.update(productId, {
+      averagePurchasePrice: Number(avgPrice.toFixed(2)),
+    });
   }
 }

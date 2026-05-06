@@ -24,4 +24,7 @@ export class CreateProductDto {
   @IsUUID('all', { message: 'El ID de la categoría debe ser un UUID válido' })
   @IsOptional()
   categoryId?: string;
+
+  @IsOptional()
+  sellingPrice?: number;
 }
