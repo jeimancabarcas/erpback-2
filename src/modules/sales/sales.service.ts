@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, Between } from 'typeorm';
 import { Invoice, InvoiceStatus } from './entities/invoice.entity';
 import { InvoiceItem } from './entities/invoice-item.entity';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
@@ -42,13 +42,16 @@ export class SalesService {
 
       for (const item of items) {
         // Verificar stock y disminuirlo (usando el manager de la transacción)
-        await this.inventoryService.consumeStock(item.productId, item.quantity, queryRunner.manager);
+        // Ahora devuelve el costo total de lo consumido
+        const totalItemCost = await this.inventoryService.consumeStock(item.productId, item.quantity, queryRunner.manager);
+        const purchasePrice = totalItemCost / item.quantity;
 
         const subtotal = item.quantity * item.unitPrice;
         totalAmount += subtotal;
 
         invoiceItems.push(this.invoiceItemRepository.create({
           ...item,
+          purchasePrice,
           subtotal,
         }));
       }
@@ -111,5 +114,69 @@ export class SalesService {
     }
 
     return invoice;
+  }
+
+  async getFinancialStats() {
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+
+    const firstDayCurrent = new Date(currentYear, currentMonth, 1);
+    const lastDayCurrent = new Date(currentYear, currentMonth + 1, 0, 23, 59, 59);
+
+    const firstDayPrev = new Date(currentYear, currentMonth - 1, 1);
+    const lastDayPrev = new Date(currentYear, currentMonth, 0, 23, 59, 59);
+
+    const currentMonthInvoices = await this.invoiceRepository.find({
+      where: {
+        date: Between(firstDayCurrent, lastDayCurrent),
+        status: InvoiceStatus.PAID,
+      },
+      relations: ['items'],
+    });
+
+    const prevMonthInvoices = await this.invoiceRepository.find({
+      where: {
+        date: Between(firstDayPrev, lastDayPrev),
+        status: InvoiceStatus.PAID,
+      },
+      relations: ['items'],
+    });
+
+    const calculateProfit = (invoices: Invoice[]) => {
+      let totalSales = 0;
+      let totalCost = 0;
+
+      for (const inv of invoices) {
+        totalSales += Number(inv.totalAmount);
+        for (const item of inv.items) {
+          totalCost += Number(item.purchasePrice || 0) * Number(item.quantity);
+        }
+      }
+
+      return {
+        totalSales,
+        totalCost,
+        profit: totalSales - totalCost,
+      };
+    };
+
+    const currentStats = calculateProfit(currentMonthInvoices);
+    const prevStats = calculateProfit(prevMonthInvoices);
+
+    const profitDiff = currentStats.profit - prevStats.profit;
+    const profitPercentage = prevStats.profit > 0 
+      ? (profitDiff / prevStats.profit) * 100 
+      : (currentStats.profit > 0 ? 100 : 0);
+
+    return {
+      currentMonth: currentStats,
+      previousMonth: prevStats,
+      comparison: {
+        difference: profitDiff,
+        percentage: Number(profitPercentage.toFixed(2)),
+        trend: profitDiff >= 0 ? 'UP' : 'DOWN',
+      },
+    };
   }
 }

@@ -27,6 +27,9 @@ export class InvoiceItem {
   @Column({ type: 'decimal', precision: 12, scale: 2 })
   unitPrice: number;
 
+  @Column({ type: 'decimal', precision: 12, scale: 2, default: 0 })
+  purchasePrice: number;
+
   @Column({ type: 'decimal', precision: 12, scale: 2 })
   subtotal: number;
 }

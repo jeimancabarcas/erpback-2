@@ -205,7 +205,7 @@ export class InventoryService {
     return this.findOneProduct(productId);
   }
 
-  async consumeStock(productId: string, quantity: number, manager?: EntityManager): Promise<void> {
+  async consumeStock(productId: string, quantity: number, manager?: EntityManager): Promise<number> {
     const productRepo = manager ? manager.getRepository(Product) : this.productRepository;
     const batchRepo = manager ? manager.getRepository(InventoryBatch) : this.batchRepository;
 
@@ -220,6 +220,8 @@ export class InventoryService {
     await productRepo.save(product);
 
     let remainingToConsume = quantity;
+    let totalCost = 0;
+
     const batches = await batchRepo.find({
       where: { productId, remainingQuantity: MoreThan(0) },
       order: { createdAt: 'ASC' },
@@ -229,6 +231,8 @@ export class InventoryService {
       if (remainingToConsume <= 0) break;
 
       const toConsumeFromBatch = Math.min(batch.remainingQuantity, remainingToConsume);
+      totalCost += toConsumeFromBatch * Number(batch.purchasePrice);
+      
       batch.remainingQuantity -= toConsumeFromBatch;
       remainingToConsume -= toConsumeFromBatch;
       await batchRepo.save(batch);
@@ -236,6 +240,8 @@ export class InventoryService {
 
     // Recalcular precio promedio después de consumir lotes
     await this.recalculateAveragePrice(productId, manager);
+
+    return totalCost;
   }
 
   private async recalculateAveragePrice(productId: string, manager?: EntityManager): Promise<void> {
