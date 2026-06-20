@@ -1,4 +1,10 @@
-import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn } from 'typeorm';
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  ManyToOne,
+  JoinColumn,
+} from 'typeorm';
 import { PurchaseOrder } from './purchase-order.entity';
 import { Product } from '../../inventory/entities/product.entity';
 
@@ -13,7 +19,9 @@ export class PurchaseOrderItem {
   @Column({ type: 'decimal', precision: 12, scale: 2 })
   price: number;
 
-  @ManyToOne(() => PurchaseOrder, (order) => order.items, { onDelete: 'CASCADE' })
+  @ManyToOne(() => PurchaseOrder, (order) => order.items, {
+    onDelete: 'CASCADE',
+  })
   @JoinColumn({ name: 'purchase_order_id' })
   purchaseOrder: PurchaseOrder;
 

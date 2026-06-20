@@ -18,7 +18,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 @UseGuards(JwtAuthGuard)
 export class SalesController {
   constructor(private readonly salesService: SalesService) {}
-  
+
   @Get('stats/financial')
   getFinancialStats() {
     return this.salesService.getFinancialStats();
@@ -28,7 +28,6 @@ export class SalesController {
   findAllNotes() {
     return this.salesService.findAllNotes();
   }
-
 
   @Post('invoices')
   create(@Body() createDto: CreateInvoiceDto) {

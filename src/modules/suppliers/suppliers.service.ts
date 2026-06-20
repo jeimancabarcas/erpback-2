@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ConflictException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Supplier } from './entities/supplier.entity';
@@ -28,7 +32,9 @@ export class SuppliersService {
     return this.supplierRepository.save(supplier);
   }
 
-  async findAll(queryDto: QuerySuppliersDto): Promise<PaginatedResult<Supplier>> {
+  async findAll(
+    queryDto: QuerySuppliersDto,
+  ): Promise<PaginatedResult<Supplier>> {
     const { page = 1, limit = 10, sortBy = 'name', order = 'ASC' } = queryDto;
     const skip = (page - 1) * limit;
 
@@ -64,8 +70,11 @@ export class SuppliersService {
     const supplier = await this.findOne(id);
 
     if (updateDto.nit && updateDto.nit !== supplier.nit) {
-      const existing = await this.supplierRepository.findOne({ where: { nit: updateDto.nit } });
-      if (existing) throw new ConflictException('Ya existe un proveedor con ese NIT');
+      const existing = await this.supplierRepository.findOne({
+        where: { nit: updateDto.nit },
+      });
+      if (existing)
+        throw new ConflictException('Ya existe un proveedor con ese NIT');
     }
 
     Object.assign(supplier, updateDto);

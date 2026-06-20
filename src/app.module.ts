@@ -31,7 +31,7 @@ import { FactusModule } from './modules/factus/factus.module';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
-        type: configService.get<'mysql' | 'postgres'>('DB_TYPE', 'postgres') as any,
+        type: configService.get<'mysql' | 'postgres'>('DB_TYPE', 'postgres'),
         host: configService.get<string>('DB_HOST'),
         port: configService.get<number>('DB_PORT'),
         username: configService.get<string>('DB_USERNAME'),

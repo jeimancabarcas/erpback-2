@@ -30,14 +30,16 @@ export class FactusHttpInvoicingAdapter implements IFactusInvoicingGateway {
       const response = await fetch(`${baseUrl}${endpoint}`, {
         method: 'GET',
         headers: {
-          'Authorization': `Bearer ${token}`,
-          'Accept': 'application/json',
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/json',
         },
       });
 
       if (!response.ok) {
         const errorText = await response.text();
-        this.logger.error(`Error response from Factus API [${response.status}]: ${errorText}`);
+        this.logger.error(
+          `Error response from Factus API [${response.status}]: ${errorText}`,
+        );
         throw new Error(`HTTP ${response.status}: ${errorText}`);
       }
 
@@ -48,19 +50,28 @@ export class FactusHttpInvoicingAdapter implements IFactusInvoicingGateway {
     }
   }
 
-  private async getActiveNumberingRangeId(documentType: string): Promise<number> {
+  private async getActiveNumberingRangeId(
+    documentType: string,
+  ): Promise<number> {
     try {
       const response = await this.makeGetRequest('/v2/numbering-ranges');
       const ranges = response.data?.data || response.data || [];
-      const range = ranges.find((r: any) => 
-        r.document && r.document.toLowerCase() === documentType.toLowerCase() && r.is_active
+      const range = ranges.find(
+        (r: any) =>
+          r.document &&
+          r.document.toLowerCase() === documentType.toLowerCase() &&
+          r.is_active,
       );
       if (!range) {
-        throw new Error(`No active numbering range found for document type: ${documentType}`);
+        throw new Error(
+          `No active numbering range found for document type: ${documentType}`,
+        );
       }
       return range.id;
     } catch (error) {
-      this.logger.error(`Failed to get active numbering range id for ${documentType}: ${error.message}`);
+      this.logger.error(
+        `Failed to get active numbering range id for ${documentType}: ${error.message}`,
+      );
       // Fallback defaults for Sandbox V2
       if (documentType.toLowerCase() === 'nota crédito') return 390;
       if (documentType.toLowerCase() === 'nota débito') return 391;
@@ -78,8 +89,8 @@ export class FactusHttpInvoicingAdapter implements IFactusInvoicingGateway {
       const response = await fetch(`${baseUrl}${endpoint}`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${token}`,
-          'Accept': 'application/json',
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/json',
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(payload),
@@ -87,7 +98,9 @@ export class FactusHttpInvoicingAdapter implements IFactusInvoicingGateway {
 
       if (!response.ok) {
         const errorText = await response.text();
-        this.logger.error(`Error response from Factus API [${response.status}]: ${errorText}`);
+        this.logger.error(
+          `Error response from Factus API [${response.status}]: ${errorText}`,
+        );
         throw new Error(`HTTP ${response.status}: ${errorText}`);
       }
 
@@ -98,14 +111,18 @@ export class FactusHttpInvoicingAdapter implements IFactusInvoicingGateway {
     }
   }
 
-  async createInvoice(invoice: FactusInvoiceRequest): Promise<FactusInvoiceResponse> {
-    const numberingRangeId = invoice.numberingRangeId || await this.getActiveNumberingRangeId('Factura de Venta');
+  async createInvoice(
+    invoice: FactusInvoiceRequest,
+  ): Promise<FactusInvoiceResponse> {
+    const numberingRangeId =
+      invoice.numberingRangeId ||
+      (await this.getActiveNumberingRangeId('Factura de Venta'));
 
     const payload = {
       reference_code: invoice.referenceCode,
       numbering_range_id: numberingRangeId,
       observation: invoice.observation,
-      payment_details: invoice.paymentDetails.map(p => ({
+      payment_details: invoice.paymentDetails.map((p) => ({
         payment_form: p.paymentForm,
         payment_method_code: p.paymentMethodCode,
         amount: p.amount,
@@ -113,7 +130,8 @@ export class FactusHttpInvoicingAdapter implements IFactusInvoicingGateway {
         due_date: p.dueDate,
       })),
       customer: {
-        identification_document_code: invoice.customer.identificationDocumentCode,
+        identification_document_code:
+          invoice.customer.identificationDocumentCode,
         identification: invoice.customer.identification,
         dv: invoice.customer.dv,
         legal_organization_code: invoice.customer.legalOrganizationCode,
@@ -126,7 +144,7 @@ export class FactusHttpInvoicingAdapter implements IFactusInvoicingGateway {
         phone: invoice.customer.phone,
         municipality_code: invoice.customer.municipalityCode,
       },
-      items: invoice.items.map(item => ({
+      items: invoice.items.map((item) => ({
         code_reference: item.codeReference,
         name: item.name,
         quantity: Number(item.quantity).toFixed(2),
@@ -135,7 +153,7 @@ export class FactusHttpInvoicingAdapter implements IFactusInvoicingGateway {
         unit_measure_code: item.unitMeasureCode || '94',
         standard_code: item.standardCode || '999',
         note: item.note,
-        taxes: item.taxes.map(t => ({
+        taxes: item.taxes.map((t) => ({
           code: t.code,
           rate: t.rate,
           is_excluded: t.isExcluded || false,
@@ -143,12 +161,19 @@ export class FactusHttpInvoicingAdapter implements IFactusInvoicingGateway {
       })),
     };
 
-    const rawResponse = await this.makePostRequest('/v2/bills/validate', payload);
+    const rawResponse = await this.makePostRequest(
+      '/v2/bills/validate',
+      payload,
+    );
     return this.mapResponse(rawResponse);
   }
 
-  async createCreditNote(creditNote: FactusCreditNoteRequest): Promise<FactusCreditNoteResponse> {
-    const numberingRangeId = creditNote.numberingRangeId || await this.getActiveNumberingRangeId('Nota Crédito');
+  async createCreditNote(
+    creditNote: FactusCreditNoteRequest,
+  ): Promise<FactusCreditNoteResponse> {
+    const numberingRangeId =
+      creditNote.numberingRangeId ||
+      (await this.getActiveNumberingRangeId('Nota Crédito'));
 
     const payload: any = {
       reference_code: creditNote.referenceCode,
@@ -157,14 +182,14 @@ export class FactusHttpInvoicingAdapter implements IFactusInvoicingGateway {
       bill_number: creditNote.billNumber,
       numbering_range_id: numberingRangeId,
       observation: creditNote.observation,
-      payment_details: creditNote.paymentDetails.map(p => ({
+      payment_details: creditNote.paymentDetails.map((p) => ({
         payment_form: p.paymentForm,
         payment_method_code: p.paymentMethodCode,
         amount: p.amount,
         reference_code: p.referenceCode,
         due_date: p.dueDate,
       })),
-      items: creditNote.items.map(item => ({
+      items: creditNote.items.map((item) => ({
         code_reference: item.codeReference,
         name: item.name,
         quantity: Number(item.quantity).toFixed(2),
@@ -173,7 +198,7 @@ export class FactusHttpInvoicingAdapter implements IFactusInvoicingGateway {
         unit_measure_code: item.unitMeasureCode || '94',
         standard_code: item.standardCode || '999',
         note: item.note,
-        taxes: item.taxes.map(t => ({
+        taxes: item.taxes.map((t) => ({
           code: t.code,
           rate: t.rate,
           is_excluded: t.isExcluded || false,
@@ -183,7 +208,8 @@ export class FactusHttpInvoicingAdapter implements IFactusInvoicingGateway {
 
     if (creditNote.customer) {
       payload.customer = {
-        identification_document_code: creditNote.customer.identificationDocumentCode,
+        identification_document_code:
+          creditNote.customer.identificationDocumentCode,
         identification: creditNote.customer.identification,
         dv: creditNote.customer.dv,
         legal_organization_code: creditNote.customer.legalOrganizationCode,
@@ -198,12 +224,19 @@ export class FactusHttpInvoicingAdapter implements IFactusInvoicingGateway {
       };
     }
 
-    const rawResponse = await this.makePostRequest('/v2/credit-notes/validate', payload);
+    const rawResponse = await this.makePostRequest(
+      '/v2/credit-notes/validate',
+      payload,
+    );
     return this.mapResponse(rawResponse);
   }
 
-  async createDebitNote(debitNote: FactusDebitNoteRequest): Promise<FactusDebitNoteResponse> {
-    const numberingRangeId = debitNote.numberingRangeId || await this.getActiveNumberingRangeId('Nota Débito');
+  async createDebitNote(
+    debitNote: FactusDebitNoteRequest,
+  ): Promise<FactusDebitNoteResponse> {
+    const numberingRangeId =
+      debitNote.numberingRangeId ||
+      (await this.getActiveNumberingRangeId('Nota Débito'));
 
     const payload: any = {
       reference_code: debitNote.referenceCode,
@@ -212,14 +245,14 @@ export class FactusHttpInvoicingAdapter implements IFactusInvoicingGateway {
       bill_number: debitNote.billNumber,
       numbering_range_id: numberingRangeId,
       observation: debitNote.observation,
-      payment_details: debitNote.paymentDetails.map(p => ({
+      payment_details: debitNote.paymentDetails.map((p) => ({
         payment_form: p.paymentForm,
         payment_method_code: p.paymentMethodCode,
         amount: p.amount,
         reference_code: p.referenceCode,
         due_date: p.dueDate,
       })),
-      items: debitNote.items.map(item => ({
+      items: debitNote.items.map((item) => ({
         code_reference: item.codeReference,
         name: item.name,
         quantity: Number(item.quantity).toFixed(2),
@@ -228,7 +261,7 @@ export class FactusHttpInvoicingAdapter implements IFactusInvoicingGateway {
         unit_measure_code: item.unitMeasureCode || '94',
         standard_code: item.standardCode || '999',
         note: item.note,
-        taxes: item.taxes.map(t => ({
+        taxes: item.taxes.map((t) => ({
           code: t.code,
           rate: t.rate,
           is_excluded: t.isExcluded || false,
@@ -238,7 +271,8 @@ export class FactusHttpInvoicingAdapter implements IFactusInvoicingGateway {
 
     if (debitNote.customer) {
       payload.customer = {
-        identification_document_code: debitNote.customer.identificationDocumentCode,
+        identification_document_code:
+          debitNote.customer.identificationDocumentCode,
         identification: debitNote.customer.identification,
         dv: debitNote.customer.dv,
         legal_organization_code: debitNote.customer.legalOrganizationCode,
@@ -253,22 +287,37 @@ export class FactusHttpInvoicingAdapter implements IFactusInvoicingGateway {
       };
     }
 
-    const rawResponse = await this.makePostRequest('/v2/debit-notes/validate', payload);
+    const rawResponse = await this.makePostRequest(
+      '/v2/debit-notes/validate',
+      payload,
+    );
     return this.mapResponse(rawResponse);
   }
 
-  async downloadInvoicePdf(number: string): Promise<{ pdfBase64Encoded: string; fileName: string }> {
-    const rawResponse = await this.makeGetRequest(`/v2/bills/${number}/download-pdf`);
+  async downloadInvoicePdf(
+    number: string,
+  ): Promise<{ pdfBase64Encoded: string; fileName: string }> {
+    const rawResponse = await this.makeGetRequest(
+      `/v2/bills/${number}/download-pdf`,
+    );
     return {
-      pdfBase64Encoded: rawResponse.data?.pdf_base_64_encoded || rawResponse.pdf_base_64_encoded,
+      pdfBase64Encoded:
+        rawResponse.data?.pdf_base_64_encoded ||
+        rawResponse.pdf_base_64_encoded,
       fileName: rawResponse.data?.file_name || rawResponse.file_name,
     };
   }
 
-  async downloadAdjustmentNotePdf(number: string): Promise<{ pdfBase64Encoded: string; fileName: string }> {
-    const rawResponse = await this.makeGetRequest(`/v2/adjustment-notes/${number}/download-pdf`);
+  async downloadAdjustmentNotePdf(
+    number: string,
+  ): Promise<{ pdfBase64Encoded: string; fileName: string }> {
+    const rawResponse = await this.makeGetRequest(
+      `/v2/adjustment-notes/${number}/download-pdf`,
+    );
     return {
-      pdfBase64Encoded: rawResponse.data?.pdf_base_64_encoded || rawResponse.pdf_base_64_encoded,
+      pdfBase64Encoded:
+        rawResponse.data?.pdf_base_64_encoded ||
+        rawResponse.pdf_base_64_encoded,
       fileName: rawResponse.data?.file_name || rawResponse.file_name,
     };
   }
@@ -291,15 +340,17 @@ export class FactusHttpInvoicingAdapter implements IFactusInvoicingGateway {
         validatedAt: d.validated_at,
         createdAt: d.created_at,
         sendEmail: d.send_email || false,
-        numberingRange: d.numbering_range ? {
-          prefix: d.numbering_range.prefix,
-          from: d.numbering_range.from,
-          to: d.numbering_range.to,
-          resolutionNumber: d.numbering_range.resolution_number,
-          startDate: d.numbering_range.start_date,
-          endDate: d.numbering_range.end_date,
-          months: d.numbering_range.months,
-        } : null,
+        numberingRange: d.numbering_range
+          ? {
+              prefix: d.numbering_range.prefix,
+              from: d.numbering_range.from,
+              to: d.numbering_range.to,
+              resolutionNumber: d.numbering_range.resolution_number,
+              startDate: d.numbering_range.start_date,
+              endDate: d.numbering_range.end_date,
+              months: d.numbering_range.months,
+            }
+          : null,
         items: (d.items || []).map((i: any) => ({
           codeReference: i.code_reference,
           name: i.name,
@@ -314,14 +365,16 @@ export class FactusHttpInvoicingAdapter implements IFactusInvoicingGateway {
           taxableAmount: Number(t.taxable_amount),
           taxAmount: Number(t.tax_amount),
         })),
-        totals: d.totals ? {
-          prepaymentAmount: Number(d.totals.prepayment_amount || 0),
-          grossAmount: Number(d.totals.gross_amount || 0),
-          taxableAmount: Number(d.totals.taxable_amount || 0),
-          taxAmount: Number(d.totals.tax_amount || 0),
-          surchargeAmount: Number(d.totals.surcharge_amount || 0),
-          total: Number(d.totals.total || 0),
-        } : null,
+        totals: d.totals
+          ? {
+              prepaymentAmount: Number(d.totals.prepayment_amount || 0),
+              grossAmount: Number(d.totals.gross_amount || 0),
+              taxableAmount: Number(d.totals.taxable_amount || 0),
+              taxAmount: Number(d.totals.tax_amount || 0),
+              surchargeAmount: Number(d.totals.surcharge_amount || 0),
+              total: Number(d.totals.total || 0),
+            }
+          : null,
         links: {
           qr: d.links?.qr,
           publicUrl: d.links?.public_url,

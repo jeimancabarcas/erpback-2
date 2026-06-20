@@ -1,0 +1,48 @@
+project: erpbackend
+context: |
+  NestJS backend application for the ERP system. It uses TypeORM with a PostgreSQL
+  database, TypeScript, ESLint, and Prettier. The project features clean architecture,
+  NestJS best practices, and integrates with the Factus API for electronic invoicing.
+strict_tdd: true
+testing:
+  runner:
+    command: npm run test
+    framework: jest
+  layers:
+    unit:
+      available: true
+      tool: jest
+    integration:
+      available: true
+      tool: jest + supertest (via test:e2e)
+    e2e:
+      available: true
+      tool: jest + supertest (via test:e2e)
+  coverage:
+    available: true
+    command: npm run test:cov
+  quality_tools:
+    linter:
+      available: true
+      command: npm run lint
+    type_checker:
+      available: true
+      command: npm run build
+    formatter:
+      available: true
+      command: npm run format
+phase_rules:
+  proposal:
+    artifact_store: hybrid
+  spec:
+    artifact_store: hybrid
+  design:
+    artifact_store: hybrid
+  tasks:
+    artifact_store: hybrid
+  apply:
+    artifact_store: hybrid
+  verify:
+    artifact_store: hybrid
+  archive:
+    artifact_store: hybrid

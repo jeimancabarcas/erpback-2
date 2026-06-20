@@ -1,4 +1,9 @@
-import { Injectable, BadRequestException, NotFoundException, Inject } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  NotFoundException,
+  Inject,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, Between } from 'typeorm';
 import { Invoice, InvoiceStatus } from './entities/invoice.entity';
@@ -11,7 +16,10 @@ import { CreateSalesNoteDto } from './dto/create-sales-note.dto';
 import { InventoryService } from '../inventory/inventory.service';
 import { PaginatedResult } from '../../common/interfaces/paginated-result.interface';
 import { buildWhere } from '../../common/helpers/query.helper';
-import { IFactusInvoicingGateway, FactusItem } from '../factus/interfaces/factus-invoicing-gateway.interface';
+import {
+  IFactusInvoicingGateway,
+  FactusItem,
+} from '../factus/interfaces/factus-invoicing-gateway.interface';
 import { Customer } from '../customers/entities/customer.entity';
 import { Product } from '../inventory/entities/product.entity';
 
@@ -36,7 +44,9 @@ export class SalesService {
     const { items, ...invoiceData } = createDto;
 
     if (!items || items.length === 0) {
-      throw new BadRequestException('La factura debe tener al menos un producto');
+      throw new BadRequestException(
+        'La factura debe tener al menos un producto',
+      );
     }
 
     const queryRunner = this.dataSource.createQueryRunner();
@@ -46,10 +56,12 @@ export class SalesService {
     try {
       // 1. Cargar detalles del cliente
       const customer = await queryRunner.manager.findOne(Customer, {
-        where: { id: invoiceData.customerId }
+        where: { id: invoiceData.customerId },
       });
       if (!customer) {
-        throw new NotFoundException(`Cliente con ID ${invoiceData.customerId} no encontrado`);
+        throw new NotFoundException(
+          `Cliente con ID ${invoiceData.customerId} no encontrado`,
+        );
       }
 
       // 2. Calcular totales, verificar/consumir stock y preparar ítems de Factus
@@ -61,30 +73,41 @@ export class SalesService {
       for (const item of items) {
         // Cargar detalles del producto para obtener precio y detalles de Factus
         const product = await queryRunner.manager.findOne(Product, {
-          where: { id: item.productId }
+          where: { id: item.productId },
         });
         if (!product) {
-          throw new NotFoundException(`Producto con ID ${item.productId} no encontrado`);
+          throw new NotFoundException(
+            `Producto con ID ${item.productId} no encontrado`,
+          );
         }
 
         // Obtener el precio unitario del producto si no es provisto por el front
-        const unitPrice = item.unitPrice !== undefined ? Number(item.unitPrice) : Number(product.sellingPrice);
+        const unitPrice =
+          item.unitPrice !== undefined
+            ? Number(item.unitPrice)
+            : Number(product.sellingPrice);
 
         // Verificar stock y disminuirlo (usando el manager de la transacción)
         // Ahora devuelve el costo total de lo consumido
-        const totalItemCost = await this.inventoryService.consumeStock(item.productId, item.quantity, queryRunner.manager);
+        const totalItemCost = await this.inventoryService.consumeStock(
+          item.productId,
+          item.quantity,
+          queryRunner.manager,
+        );
         const purchasePrice = totalItemCost / item.quantity;
 
         const subtotal = item.quantity * unitPrice;
         totalAmount += subtotal;
 
-        invoiceItems.push(this.invoiceItemRepository.create({
-          productId: item.productId,
-          quantity: item.quantity,
-          unitPrice,
-          purchasePrice,
-          subtotal,
-        }));
+        invoiceItems.push(
+          this.invoiceItemRepository.create({
+            productId: item.productId,
+            quantity: item.quantity,
+            unitPrice,
+            purchasePrice,
+            subtotal,
+          }),
+        );
 
         // Desglosar impuestos para Factus:
         // El precio unitario enviado debe ser sin IVA (unitPrice / 1.19)
@@ -124,12 +147,19 @@ export class SalesService {
 
       let invoiceNumber = `FAC-${(count + 1).toString().padStart(4, '0')}`;
       try {
-        const factusResponse = await this.factusGateway.createInvoice(factusPayload);
-        if (factusResponse && factusResponse.data && factusResponse.data.number) {
+        const factusResponse =
+          await this.factusGateway.createInvoice(factusPayload);
+        if (
+          factusResponse &&
+          factusResponse.data &&
+          factusResponse.data.number
+        ) {
           invoiceNumber = factusResponse.data.number; // e.g. SETP990003678
         }
       } catch (error) {
-        throw new BadRequestException(`Error al emitir Factura en Factus: ${error.message}`);
+        throw new BadRequestException(
+          `Error al emitir Factura en Factus: ${error.message}`,
+        );
       }
 
       // 4. Crear la factura local
@@ -155,10 +185,19 @@ export class SalesService {
   }
 
   async findAll(queryDto: QueryInvoicesDto): Promise<PaginatedResult<Invoice>> {
-    const { page = 1, limit = 10, sortBy = 'createdAt', order = 'DESC' } = queryDto;
+    const {
+      page = 1,
+      limit = 10,
+      sortBy = 'createdAt',
+      order = 'DESC',
+    } = queryDto;
     const skip = (page - 1) * limit;
 
-    const where = buildWhere(queryDto, ['invoiceNumber'], ['customerId', 'status']);
+    const where = buildWhere(
+      queryDto,
+      ['invoiceNumber'],
+      ['customerId', 'status'],
+    );
 
     const [data, total] = await this.invoiceRepository.findAndCount({
       where,
@@ -198,7 +237,14 @@ export class SalesService {
     const currentYear = now.getFullYear();
 
     const firstDayCurrent = new Date(currentYear, currentMonth, 1);
-    const lastDayCurrent = new Date(currentYear, currentMonth + 1, 0, 23, 59, 59);
+    const lastDayCurrent = new Date(
+      currentYear,
+      currentMonth + 1,
+      0,
+      23,
+      59,
+      59,
+    );
 
     const firstDayPrev = new Date(currentYear, currentMonth - 1, 1);
     const lastDayPrev = new Date(currentYear, currentMonth, 0, 23, 59, 59);
@@ -241,9 +287,12 @@ export class SalesService {
     const prevStats = calculateProfit(prevMonthInvoices);
 
     const profitDiff = currentStats.profit - prevStats.profit;
-    const profitPercentage = prevStats.profit > 0 
-      ? (profitDiff / prevStats.profit) * 100 
-      : (currentStats.profit > 0 ? 100 : 0);
+    const profitPercentage =
+      prevStats.profit > 0
+        ? (profitDiff / prevStats.profit) * 100
+        : currentStats.profit > 0
+          ? 100
+          : 0;
 
     return {
       currentMonth: currentStats,
@@ -281,7 +330,10 @@ export class SalesService {
     };
   }
 
-  async createCreditNote(invoiceId: string, dto: CreateSalesNoteDto): Promise<CreditNote> {
+  async createCreditNote(
+    invoiceId: string,
+    dto: CreateSalesNoteDto,
+  ): Promise<CreditNote> {
     const invoice = await this.invoiceRepository.findOne({
       where: { id: invoiceId },
       relations: ['customer', 'items', 'items.product'],
@@ -292,26 +344,35 @@ export class SalesService {
     }
 
     // 1. Determinar ítems de la nota de crédito
-    let itemsToCredit: any[] = [];
+    const itemsToCredit: any[] = [];
     let totalAmount = 0;
     let factusTotalAmount = 0;
 
     if (dto.items && dto.items.length > 0) {
       for (const itemDto of dto.items) {
         const matchingInvoiceItem = invoice.items.find(
-          ii => ii.product?.sku === itemDto.codeReference || ii.productId === itemDto.codeReference
+          (ii) =>
+            ii.product?.sku === itemDto.codeReference ||
+            ii.productId === itemDto.codeReference,
         );
 
         if (!matchingInvoiceItem) {
-          throw new BadRequestException(`El ítem con código ${itemDto.codeReference} no pertenece a esta factura`);
+          throw new BadRequestException(
+            `El ítem con código ${itemDto.codeReference} no pertenece a esta factura`,
+          );
         }
 
         if (itemDto.quantity > matchingInvoiceItem.quantity) {
-          throw new BadRequestException(`La cantidad a acreditar (${itemDto.quantity}) supera la cantidad facturada (${matchingInvoiceItem.quantity})`);
+          throw new BadRequestException(
+            `La cantidad a acreditar (${itemDto.quantity}) supera la cantidad facturada (${matchingInvoiceItem.quantity})`,
+          );
         }
 
         // Obtener el precio del producto si no es provisto por el front
-        const price = itemDto.price !== undefined ? Number(itemDto.price) : Number(matchingInvoiceItem.unitPrice);
+        const price =
+          itemDto.price !== undefined
+            ? Number(itemDto.price)
+            : Number(matchingInvoiceItem.unitPrice);
 
         totalAmount += itemDto.quantity * price;
 
@@ -335,7 +396,9 @@ export class SalesService {
       // Nota crédito por el valor total
       totalAmount = Number(invoice.totalAmount);
       for (const item of invoice.items) {
-        const priceBeforeTax = Number((Number(item.unitPrice) / 1.19).toFixed(2));
+        const priceBeforeTax = Number(
+          (Number(item.unitPrice) / 1.19).toFixed(2),
+        );
         const itemSubtotal = priceBeforeTax * Number(item.quantity);
         const itemTax = Number((itemSubtotal * 0.19).toFixed(2));
         factusTotalAmount += itemSubtotal + itemTax;
@@ -375,7 +438,8 @@ export class SalesService {
     };
 
     try {
-      const factusResponse = await this.factusGateway.createCreditNote(factusPayload);
+      const factusResponse =
+        await this.factusGateway.createCreditNote(factusPayload);
 
       // 4. Guardar nota de crédito localmente
       const creditNote = this.creditNoteRepository.create({
@@ -385,8 +449,12 @@ export class SalesService {
         correctionConceptCode: dto.correctionConceptCode,
         amount: totalAmount,
         observation: dto.observation,
-        qrUrl: factusResponse.data.qrUrl || factusResponse.data.links?.qr || null,
-        publicUrl: factusResponse.data.publicUrl || factusResponse.data.links?.publicUrl || null,
+        qrUrl:
+          factusResponse.data.qrUrl || factusResponse.data.links?.qr || null,
+        publicUrl:
+          factusResponse.data.publicUrl ||
+          factusResponse.data.links?.publicUrl ||
+          null,
         invoiceId,
       });
 
@@ -400,11 +468,16 @@ export class SalesService {
 
       return savedNote;
     } catch (error) {
-      throw new BadRequestException(`Error al emitir Nota de Crédito en Factus: ${error.message}`);
+      throw new BadRequestException(
+        `Error al emitir Nota de Crédito en Factus: ${error.message}`,
+      );
     }
   }
 
-  async createDebitNote(invoiceId: string, dto: CreateSalesNoteDto): Promise<DebitNote> {
+  async createDebitNote(
+    invoiceId: string,
+    dto: CreateSalesNoteDto,
+  ): Promise<DebitNote> {
     const invoice = await this.invoiceRepository.findOne({
       where: { id: invoiceId },
       relations: ['customer', 'items', 'items.product'],
@@ -415,18 +488,23 @@ export class SalesService {
     }
 
     // 1. Determinar ítems de la nota de débito
-    let itemsToDebit: any[] = [];
+    const itemsToDebit: any[] = [];
     let totalAmount = 0;
     let factusTotalAmount = 0;
 
     if (dto.items && dto.items.length > 0) {
       for (const itemDto of dto.items) {
         const matchingInvoiceItem = invoice.items.find(
-          ii => ii.product?.sku === itemDto.codeReference || ii.productId === itemDto.codeReference
+          (ii) =>
+            ii.product?.sku === itemDto.codeReference ||
+            ii.productId === itemDto.codeReference,
         );
 
         // Obtener el precio del producto si no es provisto por el front
-        const price = itemDto.price !== undefined ? Number(itemDto.price) : Number(matchingInvoiceItem?.unitPrice || 0);
+        const price =
+          itemDto.price !== undefined
+            ? Number(itemDto.price)
+            : Number(matchingInvoiceItem?.unitPrice || 0);
 
         totalAmount += itemDto.quantity * price;
 
@@ -449,7 +527,9 @@ export class SalesService {
     } else {
       totalAmount = Number(invoice.totalAmount);
       for (const item of invoice.items) {
-        const priceBeforeTax = Number((Number(item.unitPrice) / 1.19).toFixed(2));
+        const priceBeforeTax = Number(
+          (Number(item.unitPrice) / 1.19).toFixed(2),
+        );
         const itemSubtotal = priceBeforeTax * Number(item.quantity);
         const itemTax = Number((itemSubtotal * 0.19).toFixed(2));
         factusTotalAmount += itemSubtotal + itemTax;
@@ -489,7 +569,8 @@ export class SalesService {
     };
 
     try {
-      const factusResponse = await this.factusGateway.createDebitNote(factusPayload);
+      const factusResponse =
+        await this.factusGateway.createDebitNote(factusPayload);
 
       // 4. Guardar nota de débito localmente
       const debitNote = this.debitNoteRepository.create({
@@ -499,14 +580,20 @@ export class SalesService {
         correctionConceptCode: dto.correctionConceptCode,
         amount: totalAmount,
         observation: dto.observation,
-        qrUrl: factusResponse.data.qrUrl || factusResponse.data.links?.qr || null,
-        publicUrl: factusResponse.data.publicUrl || factusResponse.data.links?.publicUrl || null,
+        qrUrl:
+          factusResponse.data.qrUrl || factusResponse.data.links?.qr || null,
+        publicUrl:
+          factusResponse.data.publicUrl ||
+          factusResponse.data.links?.publicUrl ||
+          null,
         invoiceId,
       });
 
       return await this.debitNoteRepository.save(debitNote);
     } catch (error) {
-      throw new BadRequestException(`Error al emitir Nota de Débito en Factus: ${error.message}`);
+      throw new BadRequestException(
+        `Error al emitir Nota de Débito en Factus: ${error.message}`,
+      );
     }
   }
 
@@ -544,16 +631,22 @@ export class SalesService {
     };
   }
 
-
-  async downloadInvoicePdf(id: string): Promise<{ pdfBase64Encoded: string; fileName: string }> {
+  async downloadInvoicePdf(
+    id: string,
+  ): Promise<{ pdfBase64Encoded: string; fileName: string }> {
     const invoice = await this.findOne(id);
     if (!invoice.invoiceNumber) {
-      throw new BadRequestException('La factura no tiene un número oficial asignado');
+      throw new BadRequestException(
+        'La factura no tiene un número oficial asignado',
+      );
     }
     return this.factusGateway.downloadInvoicePdf(invoice.invoiceNumber);
   }
 
-  async downloadAdjustmentNotePdf(id: string, type: 'Credit' | 'Debit'): Promise<{ pdfBase64Encoded: string; fileName: string }> {
+  async downloadAdjustmentNotePdf(
+    id: string,
+    type: 'Credit' | 'Debit',
+  ): Promise<{ pdfBase64Encoded: string; fileName: string }> {
     let note: any;
     let invoice: any;
 
@@ -563,7 +656,9 @@ export class SalesService {
         relations: ['invoice', 'invoice.customer'],
       });
       if (!note) {
-        throw new NotFoundException(`Nota de crédito con ID ${id} no encontrada`);
+        throw new NotFoundException(
+          `Nota de crédito con ID ${id} no encontrada`,
+        );
       }
       invoice = note.invoice;
     } else {
@@ -572,20 +667,29 @@ export class SalesService {
         relations: ['invoice', 'invoice.customer'],
       });
       if (!note) {
-        throw new NotFoundException(`Nota de débito con ID ${id} no encontrada`);
+        throw new NotFoundException(
+          `Nota de débito con ID ${id} no encontrada`,
+        );
       }
       invoice = note.invoice;
     }
 
     const noteNumber = note.noteNumber;
-    const isMock = !noteNumber || noteNumber.startsWith('NC-PEND-') || noteNumber.startsWith('ND-PEND-') || !note.cude;
+    const isMock =
+      !noteNumber ||
+      noteNumber.startsWith('NC-PEND-') ||
+      noteNumber.startsWith('ND-PEND-') ||
+      !note.cude;
 
     if (!isMock) {
       try {
         return await this.factusGateway.downloadAdjustmentNotePdf(noteNumber);
       } catch (error) {
         // Log the error and fall back to the beautifully generated simulated PDF
-        console.warn(`Factus PDF download failed for note ${noteNumber}, falling back to simulated PDF:`, error.message);
+        console.warn(
+          `Factus PDF download failed for note ${noteNumber}, falling back to simulated PDF:`,
+          error.message,
+        );
       }
     }
 
@@ -599,15 +703,36 @@ export class SalesService {
     };
   }
 
-  private generateSimulatedNotePdfBase64(note: any, invoice: any, type: 'Credit' | 'Debit'): string {
-    const docType = type === 'Credit' ? 'NOTA CREDITO ELECTRONICA' : 'NOTA DEBITO ELECTRONICA';
+  private generateSimulatedNotePdfBase64(
+    note: any,
+    invoice: any,
+    type: 'Credit' | 'Debit',
+  ): string {
+    const docType =
+      type === 'Credit'
+        ? 'NOTA CREDITO ELECTRONICA'
+        : 'NOTA DEBITO ELECTRONICA';
     const number = note.noteNumber || note.referenceCode || note.id;
-    const dateStr = note.createdAt ? new Date(note.createdAt).toLocaleDateString() : new Date().toLocaleDateString();
+    const dateStr = note.createdAt
+      ? new Date(note.createdAt).toLocaleDateString()
+      : new Date().toLocaleDateString();
     const customerName = invoice?.customer?.name || 'Cliente Desconocido';
     const customerTaxId = invoice?.customer?.documentNumber || 'N/A';
-    const amountStr = Number(note.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    const baseStr = (Number(note.amount) / 1.19).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    const taxStr = (Number(note.amount) - (Number(note.amount) / 1.19)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const amountStr = Number(note.amount).toLocaleString('en-US', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+    const baseStr = (Number(note.amount) / 1.19).toLocaleString('en-US', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+    const taxStr = (
+      Number(note.amount) -
+      Number(note.amount) / 1.19
+    ).toLocaleString('en-US', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
 
     const lines = [
       `Identificador: ${number}`,
@@ -622,7 +747,7 @@ export class SalesService {
       `IVA 19%: $${taxStr}`,
       `VALOR TOTAL: $${amountStr}`,
       `---------------------------------------`,
-      `SOPORTE DIGITAL SIMULADO DE LA DIAN`
+      `SOPORTE DIGITAL SIMULADO DE LA DIAN`,
     ];
 
     const contentStream = [
@@ -632,8 +757,8 @@ export class SalesService {
       `(${docType}) Tj`,
       '/F1 12 Tf',
       '0 -30 Td',
-      ...lines.map(line => `(${line.replace(/[\(\)]/g, '')}) Tj\n0 -18 Td`),
-      'ET'
+      ...lines.map((line) => `(${line.replace(/[\(\)]/g, '')}) Tj\n0 -18 Td`),
+      'ET',
     ].join('\n');
 
     const streamLength = contentStream.length;

@@ -26,11 +26,11 @@ export class AuthService {
       throw new UnauthorizedException('Credenciales inválidas');
     }
 
-    const payload = { 
-      sub: user.id, 
-      email: user.email, 
+    const payload = {
+      sub: user.id,
+      email: user.email,
       role: user.role,
-      isProfileCompleted: user.isProfileCompleted 
+      isProfileCompleted: user.isProfileCompleted,
     };
 
     return {

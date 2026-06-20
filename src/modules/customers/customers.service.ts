@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ConflictException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Customer } from './entities/customer.entity';
@@ -20,7 +24,7 @@ export class CustomersService {
 
   async getStats(id: string) {
     const customer = await this.findOne(id);
-    
+
     const stats = await this.invoiceRepository
       .createQueryBuilder('invoice')
       .select('COUNT(invoice.id)', 'invoiceCount')
@@ -41,7 +45,9 @@ export class CustomersService {
     });
 
     if (existing) {
-      throw new ConflictException('Ya existe un cliente con ese número de documento');
+      throw new ConflictException(
+        'Ya existe un cliente con ese número de documento',
+      );
     }
 
     if (createDto.email) {
@@ -49,7 +55,9 @@ export class CustomersService {
         where: { email: createDto.email },
       });
       if (existingEmail) {
-        throw new ConflictException('Ya existe un cliente con ese correo electrónico');
+        throw new ConflictException(
+          'Ya existe un cliente con ese correo electrónico',
+        );
       }
     }
 
@@ -57,7 +65,9 @@ export class CustomersService {
     return this.customerRepository.save(customer);
   }
 
-  async findAll(queryDto: QueryCustomersDto): Promise<PaginatedResult<Customer>> {
+  async findAll(
+    queryDto: QueryCustomersDto,
+  ): Promise<PaginatedResult<Customer>> {
     const { page = 1, limit = 10, sortBy = 'name', order = 'ASC' } = queryDto;
     const skip = (page - 1) * limit;
 
@@ -92,14 +102,27 @@ export class CustomersService {
   async update(id: string, updateDto: UpdateCustomerDto): Promise<Customer> {
     const customer = await this.findOne(id);
 
-    if (updateDto.documentNumber && updateDto.documentNumber !== customer.documentNumber) {
-      const existing = await this.customerRepository.findOne({ where: { documentNumber: updateDto.documentNumber } });
-      if (existing) throw new ConflictException('Ya existe un cliente con ese número de documento');
+    if (
+      updateDto.documentNumber &&
+      updateDto.documentNumber !== customer.documentNumber
+    ) {
+      const existing = await this.customerRepository.findOne({
+        where: { documentNumber: updateDto.documentNumber },
+      });
+      if (existing)
+        throw new ConflictException(
+          'Ya existe un cliente con ese número de documento',
+        );
     }
 
     if (updateDto.email && updateDto.email !== customer.email) {
-      const existingEmail = await this.customerRepository.findOne({ where: { email: updateDto.email } });
-      if (existingEmail) throw new ConflictException('Ya existe un cliente con ese correo electrónico');
+      const existingEmail = await this.customerRepository.findOne({
+        where: { email: updateDto.email },
+      });
+      if (existingEmail)
+        throw new ConflictException(
+          'Ya existe un cliente con ese correo electrónico',
+        );
     }
 
     Object.assign(customer, updateDto);

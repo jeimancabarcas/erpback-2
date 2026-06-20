@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ConflictException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, ILike, MoreThan, EntityManager } from 'typeorm';
 import { InventoryCategory } from './entities/inventory-category.entity';
@@ -25,7 +29,9 @@ export class InventoryService {
     private readonly batchRepository: Repository<InventoryBatch>,
   ) {}
 
-  async create(createDto: CreateInventoryCategoryDto): Promise<InventoryCategory> {
+  async create(
+    createDto: CreateInventoryCategoryDto,
+  ): Promise<InventoryCategory> {
     const existing = await this.categoryRepository.findOne({
       where: { name: createDto.name },
     });
@@ -38,29 +44,31 @@ export class InventoryService {
     return this.categoryRepository.save(category);
   }
 
-  async findAll(queryDto: QueryCategoriesDto): Promise<PaginatedResult<InventoryCategory>> {
-    const { 
-      page = 1, 
-      limit = 10, 
-      sortBy = 'name', 
-      order = 'ASC',
-    } = queryDto;
-    
+  async findAll(
+    queryDto: QueryCategoriesDto,
+  ): Promise<PaginatedResult<InventoryCategory>> {
+    const { page = 1, limit = 10, sortBy = 'name', order = 'ASC' } = queryDto;
+
     const skip = (page - 1) * limit;
 
-    const queryBuilder = this.categoryRepository.createQueryBuilder('category')
+    const queryBuilder = this.categoryRepository
+      .createQueryBuilder('category')
       .loadRelationCountAndMap('category.productsCount', 'category.products');
 
     if (queryDto.name) {
-      queryBuilder.andWhere('category.name ILIKE :name', { name: `%${queryDto.name}%` });
+      queryBuilder.andWhere('category.name ILIKE :name', {
+        name: `%${queryDto.name}%`,
+      });
     }
 
     if (queryDto.description) {
-      queryBuilder.andWhere('category.description ILIKE :description', { description: `%${queryDto.description}%` });
+      queryBuilder.andWhere('category.description ILIKE :description', {
+        description: `%${queryDto.description}%`,
+      });
     }
 
     const [data, total] = await queryBuilder
-      .orderBy(`category.${sortBy}`, order as 'ASC' | 'DESC')
+      .orderBy(`category.${sortBy}`, order)
       .skip(skip)
       .take(limit)
       .getManyAndCount();
@@ -84,9 +92,12 @@ export class InventoryService {
     return category;
   }
 
-  async update(id: string, updateDto: UpdateInventoryCategoryDto): Promise<InventoryCategory> {
+  async update(
+    id: string,
+    updateDto: UpdateInventoryCategoryDto,
+  ): Promise<InventoryCategory> {
     const category = await this.findOne(id);
-    
+
     if (updateDto.name && updateDto.name !== category.name) {
       const existing = await this.categoryRepository.findOne({
         where: { name: updateDto.name },
@@ -109,7 +120,7 @@ export class InventoryService {
 
   async createProduct(createDto: CreateProductDto): Promise<Product> {
     const { sku, name } = createDto;
-    
+
     const existing = await this.productRepository.findOne({
       where: [{ sku }, { name }],
     });
@@ -122,7 +133,9 @@ export class InventoryService {
     return this.productRepository.save(product);
   }
 
-  async findAllProducts(queryDto: QueryProductsDto): Promise<PaginatedResult<Product>> {
+  async findAllProducts(
+    queryDto: QueryProductsDto,
+  ): Promise<PaginatedResult<Product>> {
     const { page = 1, limit = 10, sortBy = 'name', order = 'ASC' } = queryDto;
     const skip = (page - 1) * limit;
 
@@ -165,12 +178,18 @@ export class InventoryService {
     });
   }
 
-  async updateProduct(id: string, updateDto: UpdateProductDto): Promise<Product> {
+  async updateProduct(
+    id: string,
+    updateDto: UpdateProductDto,
+  ): Promise<Product> {
     const product = await this.findOneProduct(id);
 
     if (updateDto.sku && updateDto.sku !== product.sku) {
-      const existing = await this.productRepository.findOne({ where: { sku: updateDto.sku } });
-      if (existing) throw new ConflictException('Ya existe un producto con ese SKU');
+      const existing = await this.productRepository.findOne({
+        where: { sku: updateDto.sku },
+      });
+      if (existing)
+        throw new ConflictException('Ya existe un producto con ese SKU');
     }
 
     Object.assign(product, updateDto);
@@ -182,9 +201,14 @@ export class InventoryService {
     await this.productRepository.remove(product);
   }
 
-  async updateStock(productId: string, quantity: number, price: number, purchaseOrderId?: string): Promise<Product> {
+  async updateStock(
+    productId: string,
+    quantity: number,
+    price: number,
+    purchaseOrderId?: string,
+  ): Promise<Product> {
     const product = await this.findOneProduct(productId);
-    
+
     // Crear el lote de inventario
     const batch = this.batchRepository.create({
       productId,
@@ -206,15 +230,25 @@ export class InventoryService {
     return this.findOneProduct(productId);
   }
 
-  async consumeStock(productId: string, quantity: number, manager?: EntityManager): Promise<number> {
-    const productRepo = manager ? manager.getRepository(Product) : this.productRepository;
-    const batchRepo = manager ? manager.getRepository(InventoryBatch) : this.batchRepository;
+  async consumeStock(
+    productId: string,
+    quantity: number,
+    manager?: EntityManager,
+  ): Promise<number> {
+    const productRepo = manager
+      ? manager.getRepository(Product)
+      : this.productRepository;
+    const batchRepo = manager
+      ? manager.getRepository(InventoryBatch)
+      : this.batchRepository;
 
     const product = await productRepo.findOne({ where: { id: productId } });
     if (!product) throw new NotFoundException(`Producto no encontrado`);
-    
+
     if (product.currentStock < quantity) {
-      throw new Error(`Stock insuficiente para el producto ${product.name}. Disponible: ${product.currentStock}`);
+      throw new Error(
+        `Stock insuficiente para el producto ${product.name}. Disponible: ${product.currentStock}`,
+      );
     }
 
     product.currentStock = Number(product.currentStock) - Number(quantity);
@@ -231,9 +265,12 @@ export class InventoryService {
     for (const batch of batches) {
       if (remainingToConsume <= 0) break;
 
-      const toConsumeFromBatch = Math.min(batch.remainingQuantity, remainingToConsume);
+      const toConsumeFromBatch = Math.min(
+        batch.remainingQuantity,
+        remainingToConsume,
+      );
       totalCost += toConsumeFromBatch * Number(batch.purchasePrice);
-      
+
       batch.remainingQuantity -= toConsumeFromBatch;
       remainingToConsume -= toConsumeFromBatch;
       await batchRepo.save(batch);
@@ -245,9 +282,16 @@ export class InventoryService {
     return totalCost;
   }
 
-  private async recalculateAveragePrice(productId: string, manager?: EntityManager): Promise<void> {
-    const productRepo = manager ? manager.getRepository(Product) : this.productRepository;
-    const batchRepo = manager ? manager.getRepository(InventoryBatch) : this.batchRepository;
+  private async recalculateAveragePrice(
+    productId: string,
+    manager?: EntityManager,
+  ): Promise<void> {
+    const productRepo = manager
+      ? manager.getRepository(Product)
+      : this.productRepository;
+    const batchRepo = manager
+      ? manager.getRepository(InventoryBatch)
+      : this.batchRepository;
 
     const batches = await batchRepo.find({
       where: { productId, remainingQuantity: MoreThan(0) },
@@ -285,12 +329,15 @@ export class InventoryService {
       type: 'In',
       product: batch.product ? batch.product.name : 'Producto Eliminado',
       quantity: batch.initialQuantity,
-      origin: batch.purchaseOrderId ? 'Proveedor (Compra)' : 'Ajuste de Inventario',
+      origin: batch.purchaseOrderId
+        ? 'Proveedor (Compra)'
+        : 'Ajuste de Inventario',
       destination: 'Almacén Principal',
     }));
 
     // 2. Obtener salidas (Out) desde los ítems facturados de ventas
-    const invoiceItemRepo = this.productRepository.manager.getRepository(InvoiceItem);
+    const invoiceItemRepo =
+      this.productRepository.manager.getRepository(InvoiceItem);
     const invoiceItems = await invoiceItemRepo.find({
       relations: ['product', 'invoice'],
       order: { invoice: { date: 'DESC' } },
@@ -298,9 +345,10 @@ export class InventoryService {
 
     const outMovements = invoiceItems.map((item) => ({
       id: `OUT-${item.id.substring(0, 8).toUpperCase()}`,
-      date: item.invoice && item.invoice.date
-        ? new Date(item.invoice.date).toISOString().split('T')[0]
-        : new Date().toISOString().split('T')[0],
+      date:
+        item.invoice && item.invoice.date
+          ? new Date(item.invoice.date).toISOString().split('T')[0]
+          : new Date().toISOString().split('T')[0],
       type: 'Out',
       product: item.product ? item.product.name : 'Producto Eliminado',
       quantity: item.quantity,

@@ -187,8 +187,16 @@ export interface FactusDebitNoteResponse {
 
 export interface IFactusInvoicingGateway {
   createInvoice(invoice: FactusInvoiceRequest): Promise<FactusInvoiceResponse>;
-  createCreditNote(creditNote: FactusCreditNoteRequest): Promise<FactusCreditNoteResponse>;
-  createDebitNote(debitNote: FactusDebitNoteRequest): Promise<FactusDebitNoteResponse>;
-  downloadInvoicePdf(number: string): Promise<{ pdfBase64Encoded: string; fileName: string }>;
-  downloadAdjustmentNotePdf(number: string): Promise<{ pdfBase64Encoded: string; fileName: string }>;
+  createCreditNote(
+    creditNote: FactusCreditNoteRequest,
+  ): Promise<FactusCreditNoteResponse>;
+  createDebitNote(
+    debitNote: FactusDebitNoteRequest,
+  ): Promise<FactusDebitNoteResponse>;
+  downloadInvoicePdf(
+    number: string,
+  ): Promise<{ pdfBase64Encoded: string; fileName: string }>;
+  downloadAdjustmentNotePdf(
+    number: string,
+  ): Promise<{ pdfBase64Encoded: string; fileName: string }>;
 }

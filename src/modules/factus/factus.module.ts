@@ -15,9 +15,6 @@ import { FactusHttpInvoicingAdapter } from './adapters/factus-http-invoicing.ada
       useClass: FactusHttpInvoicingAdapter,
     },
   ],
-  exports: [
-    'IFactusAuthGateway',
-    'IFactusInvoicingGateway',
-  ],
+  exports: ['IFactusAuthGateway', 'IFactusInvoicingGateway'],
 })
 export class FactusModule {}

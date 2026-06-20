@@ -1,7 +1,14 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { PurchaseOrder, PurchaseOrderStatus } from './entities/purchase-order.entity';
+import {
+  PurchaseOrder,
+  PurchaseOrderStatus,
+} from './entities/purchase-order.entity';
 import { PurchaseOrderItem } from './entities/purchase-order-item.entity';
 import { CreatePurchaseOrderDto } from './dto/create-purchase-order.dto';
 import { QueryPurchaseOrdersDto } from './dto/query-purchase-orders.dto';
@@ -18,11 +25,13 @@ export class PurchaseOrdersService {
     @InjectRepository(PurchaseOrderItem)
     private readonly purchaseOrderItemRepository: Repository<PurchaseOrderItem>,
     private readonly inventoryService: InventoryService,
-  ) { }
+  ) {}
 
   async create(createDto: CreatePurchaseOrderDto): Promise<PurchaseOrder> {
     if (!createDto.items || createDto.items.length === 0) {
-      throw new BadRequestException('La orden de compra debe tener al menos un producto');
+      throw new BadRequestException(
+        'La orden de compra debe tener al menos un producto',
+      );
     }
 
     // Generar número de orden (OC-0001, etc)
@@ -38,11 +47,16 @@ export class PurchaseOrdersService {
     return this.purchaseOrderRepository.save(purchaseOrder);
   }
 
-  async update(id: string, updateDto: CreatePurchaseOrderDto): Promise<PurchaseOrder> {
+  async update(
+    id: string,
+    updateDto: CreatePurchaseOrderDto,
+  ): Promise<PurchaseOrder> {
     const order = await this.findOne(id);
 
     if (order.status !== PurchaseOrderStatus.DRAFT) {
-      throw new BadRequestException('Solo se pueden editar órdenes en estado BORRADOR');
+      throw new BadRequestException(
+        'Solo se pueden editar órdenes en estado BORRADOR',
+      );
     }
 
     // Actualizar campos básicos
@@ -54,16 +68,23 @@ export class PurchaseOrdersService {
     await this.purchaseOrderItemRepository.delete({ purchaseOrderId: id });
 
     // Asignamos los nuevos items
-    order.items = updateDto.items.map(item => ({
+    order.items = updateDto.items.map((item) => ({
       ...item,
-      purchaseOrderId: id
+      purchaseOrderId: id,
     })) as any;
 
     return this.purchaseOrderRepository.save(order);
   }
 
-  async findAll(queryDto: QueryPurchaseOrdersDto): Promise<PaginatedResult<PurchaseOrder>> {
-    const { page = 1, limit = 10, sortBy = 'createdAt', order = 'DESC' } = queryDto;
+  async findAll(
+    queryDto: QueryPurchaseOrdersDto,
+  ): Promise<PaginatedResult<PurchaseOrder>> {
+    const {
+      page = 1,
+      limit = 10,
+      sortBy = 'createdAt',
+      order = 'DESC',
+    } = queryDto;
     const skip = (page - 1) * limit;
 
     const where = buildWhere(queryDto, [], ['status', 'supplierId']);
@@ -100,7 +121,10 @@ export class PurchaseOrdersService {
     return order;
   }
 
-  async updateStatus(id: string, updateStatusDto: UpdatePurchaseOrderStatusDto): Promise<PurchaseOrder> {
+  async updateStatus(
+    id: string,
+    updateStatusDto: UpdatePurchaseOrderStatusDto,
+  ): Promise<PurchaseOrder> {
     const order = await this.findOne(id);
     const previousStatus = order.status;
 
@@ -112,9 +136,17 @@ export class PurchaseOrdersService {
     const savedOrder = await this.purchaseOrderRepository.save(order);
 
     // If changing to COMPLETED for the first time, update stock
-    if (updateStatusDto.status === PurchaseOrderStatus.COMPLETED && previousStatus !== PurchaseOrderStatus.COMPLETED) {
+    if (
+      updateStatusDto.status === PurchaseOrderStatus.COMPLETED &&
+      previousStatus !== PurchaseOrderStatus.COMPLETED
+    ) {
       for (const item of order.items) {
-        await this.inventoryService.updateStock(item.productId, item.quantity, item.price, order.id);
+        await this.inventoryService.updateStock(
+          item.productId,
+          item.quantity,
+          item.price,
+          order.id,
+        );
       }
     }
 
@@ -125,7 +157,9 @@ export class PurchaseOrdersService {
     const order = await this.findOne(id);
 
     if (order.status !== PurchaseOrderStatus.DRAFT) {
-      throw new BadRequestException('Solo se pueden eliminar órdenes en estado BORRADOR');
+      throw new BadRequestException(
+        'Solo se pueden eliminar órdenes en estado BORRADOR',
+      );
     }
 
     await this.purchaseOrderRepository.remove(order);

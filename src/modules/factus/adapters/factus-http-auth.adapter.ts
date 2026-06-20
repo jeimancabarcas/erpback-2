@@ -1,6 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { IFactusAuthGateway, FactusTokenResponse } from '../interfaces/factus-auth-gateway.interface';
+import {
+  IFactusAuthGateway,
+  FactusTokenResponse,
+} from '../interfaces/factus-auth-gateway.interface';
 
 @Injectable()
 export class FactusHttpAuthAdapter implements IFactusAuthGateway {
@@ -12,10 +15,16 @@ export class FactusHttpAuthAdapter implements IFactusAuthGateway {
 
   async getAccessToken(): Promise<string> {
     const now = Math.floor(Date.now() / 1000);
-    if (this.cachedToken && this.tokenExpiration && (this.tokenExpiration - now > 60)) {
+    if (
+      this.cachedToken &&
+      this.tokenExpiration &&
+      this.tokenExpiration - now > 60
+    ) {
       return this.cachedToken;
     }
-    this.logger.log('Factus access token expired or close to expiration. Authenticating...');
+    this.logger.log(
+      'Factus access token expired or close to expiration. Authenticating...',
+    );
     const authData = await this.authenticate();
     this.cachedToken = authData.accessToken;
     this.tokenExpiration = now + authData.expiresIn;
@@ -25,7 +34,8 @@ export class FactusHttpAuthAdapter implements IFactusAuthGateway {
   async authenticate(): Promise<FactusTokenResponse> {
     const baseUrl = this.configService.get<string>('FACTUS_API_URL') || '';
     const clientId = this.configService.get<string>('FACTUS_CLIENT_ID') || '';
-    const clientSecret = this.configService.get<string>('FACTUS_CLIENT_SECRET') || '';
+    const clientSecret =
+      this.configService.get<string>('FACTUS_CLIENT_SECRET') || '';
     const username = this.configService.get<string>('FACTUS_USERNAME') || '';
     const password = this.configService.get<string>('FACTUS_PASSWORD') || '';
 
@@ -40,7 +50,7 @@ export class FactusHttpAuthAdapter implements IFactusAuthGateway {
       const response = await fetch(`${baseUrl}/oauth/token`, {
         method: 'POST',
         headers: {
-          'Accept': 'application/json',
+          Accept: 'application/json',
           'Content-Type': 'application/x-www-form-urlencoded',
         },
         body: params.toString(),
@@ -59,8 +69,12 @@ export class FactusHttpAuthAdapter implements IFactusAuthGateway {
         tokenType: rawData.token_type,
       };
     } catch (error) {
-      this.logger.error(`Error authenticating with Factus V2 API: ${error.message}`);
-      throw new Error(`Error de autenticación con Factus API: ${error.message}`);
+      this.logger.error(
+        `Error authenticating with Factus V2 API: ${error.message}`,
+      );
+      throw new Error(
+        `Error de autenticación con Factus API: ${error.message}`,
+      );
     }
   }
 }

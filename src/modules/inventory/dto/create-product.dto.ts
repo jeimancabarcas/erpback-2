@@ -1,4 +1,11 @@
-import { IsNotEmpty, IsString, IsInt, Min, IsUUID, IsOptional } from 'class-validator';
+import {
+  IsNotEmpty,
+  IsString,
+  IsInt,
+  Min,
+  IsUUID,
+  IsOptional,
+} from 'class-validator';
 
 export class CreateProductDto {
   @IsString({ message: 'El nombre debe ser una cadena de texto' })
