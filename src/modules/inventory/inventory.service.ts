@@ -4,6 +4,7 @@ import { Repository, ILike, MoreThan, EntityManager } from 'typeorm';
 import { InventoryCategory } from './entities/inventory-category.entity';
 import { Product } from './entities/product.entity';
 import { InventoryBatch } from './entities/inventory-batch.entity';
+import { InvoiceItem } from '../sales/entities/invoice-item.entity';
 import { CreateInventoryCategoryDto } from './dto/create-inventory-category.dto';
 import { UpdateInventoryCategoryDto } from './dto/update-inventory-category.dto';
 import { QueryCategoriesDto } from './dto/query-categories.dto';
@@ -268,6 +269,48 @@ export class InventoryService {
 
     await productRepo.update(productId, {
       averagePurchasePrice: Number(avgPrice.toFixed(2)),
+    });
+  }
+
+  async getMovements(): Promise<any[]> {
+    // 1. Obtener entradas (In) desde los lotes creados
+    const batches = await this.batchRepository.find({
+      relations: ['product'],
+      order: { createdAt: 'DESC' },
+    });
+
+    const inMovements = batches.map((batch) => ({
+      id: `IN-${batch.id.substring(0, 8).toUpperCase()}`,
+      date: batch.createdAt.toISOString().split('T')[0],
+      type: 'In',
+      product: batch.product ? batch.product.name : 'Producto Eliminado',
+      quantity: batch.initialQuantity,
+      origin: batch.purchaseOrderId ? 'Proveedor (Compra)' : 'Ajuste de Inventario',
+      destination: 'Almacén Principal',
+    }));
+
+    // 2. Obtener salidas (Out) desde los ítems facturados de ventas
+    const invoiceItemRepo = this.productRepository.manager.getRepository(InvoiceItem);
+    const invoiceItems = await invoiceItemRepo.find({
+      relations: ['product', 'invoice'],
+      order: { invoice: { date: 'DESC' } },
+    });
+
+    const outMovements = invoiceItems.map((item) => ({
+      id: `OUT-${item.id.substring(0, 8).toUpperCase()}`,
+      date: item.invoice && item.invoice.date
+        ? new Date(item.invoice.date).toISOString().split('T')[0]
+        : new Date().toISOString().split('T')[0],
+      type: 'Out',
+      product: item.product ? item.product.name : 'Producto Eliminado',
+      quantity: item.quantity,
+      origin: 'Almacén Principal',
+      destination: 'Cliente Final',
+    }));
+
+    // 3. Unificar y ordenar de forma cronológica descendente
+    return [...inMovements, ...outMovements].sort((a, b) => {
+      return new Date(b.date).getTime() - new Date(a.date).getTime();
     });
   }
 }

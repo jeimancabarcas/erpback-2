@@ -54,6 +54,11 @@ export class InventoryController {
     return this.inventoryService.remove(id);
   }
 
+  @Get('movements')
+  getMovements() {
+    return this.inventoryService.getMovements();
+  }
+
   // --- Product Endpoints ---
 
   @Post('products')

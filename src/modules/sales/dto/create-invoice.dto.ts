@@ -9,8 +9,8 @@ class CreateInvoiceItemDto {
   @IsNotEmpty({ message: 'La cantidad es obligatoria' })
   quantity: number;
 
-  @IsNotEmpty({ message: 'El precio unitario es obligatorio' })
-  unitPrice: number;
+  @IsOptional()
+  unitPrice?: number;
 }
 
 export class CreateInvoiceDto {

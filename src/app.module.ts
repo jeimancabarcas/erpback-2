@@ -18,6 +18,9 @@ import { Customer } from './modules/customers/entities/customer.entity';
 import { SalesModule } from './modules/sales/sales.module';
 import { Invoice } from './modules/sales/entities/invoice.entity';
 import { InvoiceItem } from './modules/sales/entities/invoice-item.entity';
+import { CreditNote } from './modules/sales/entities/credit-note.entity';
+import { DebitNote } from './modules/sales/entities/debit-note.entity';
+import { FactusModule } from './modules/factus/factus.module';
 
 @Module({
   imports: [
@@ -34,7 +37,20 @@ import { InvoiceItem } from './modules/sales/entities/invoice-item.entity';
         username: configService.get<string>('DB_USERNAME'),
         password: configService.get<string>('DB_PASSWORD'),
         database: configService.get<string>('DB_DATABASE'),
-        entities: [User, InventoryCategory, Product, Supplier, PurchaseOrder, PurchaseOrderItem, InventoryBatch, Customer, Invoice, InvoiceItem],
+        entities: [
+          User,
+          InventoryCategory,
+          Product,
+          Supplier,
+          PurchaseOrder,
+          PurchaseOrderItem,
+          InventoryBatch,
+          Customer,
+          Invoice,
+          InvoiceItem,
+          CreditNote,
+          DebitNote,
+        ],
         synchronize: true, // Only for development
       }),
     }),
@@ -45,6 +61,7 @@ import { InvoiceItem } from './modules/sales/entities/invoice-item.entity';
     PurchaseOrdersModule,
     CustomersModule,
     SalesModule,
+    FactusModule,
   ],
 })
 export class AppModule {}
