@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   ConflictException,
+  BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, ILike, MoreThan, EntityManager } from 'typeorm';
@@ -130,7 +131,20 @@ export class InventoryService {
     }
 
     const product = this.productRepository.create(createDto);
-    return this.productRepository.save(product);
+    const savedProduct = await this.productRepository.save(product);
+
+    if (savedProduct.currentStock > 0) {
+      const initialBatch = this.batchRepository.create({
+        productId: savedProduct.id,
+        initialQuantity: savedProduct.currentStock,
+        remainingQuantity: savedProduct.currentStock,
+        purchasePrice: 0,
+        adjustmentReason: 'Stock Inicial',
+      });
+      await this.batchRepository.save(initialBatch);
+    }
+
+    return savedProduct;
   }
 
   async findAllProducts(
@@ -182,18 +196,95 @@ export class InventoryService {
     id: string,
     updateDto: UpdateProductDto,
   ): Promise<Product> {
-    const product = await this.findOneProduct(id);
+    return this.productRepository.manager.transaction(async (manager) => {
+      const productRepo = manager.getRepository(Product);
+      const batchRepo = manager.getRepository(InventoryBatch);
 
-    if (updateDto.sku && updateDto.sku !== product.sku) {
-      const existing = await this.productRepository.findOne({
-        where: { sku: updateDto.sku },
+      const product = await productRepo.findOne({
+        where: { id },
+        lock: { mode: 'pessimistic_write' },
       });
-      if (existing)
-        throw new ConflictException('Ya existe un producto con ese SKU');
-    }
 
-    Object.assign(product, updateDto);
-    return this.productRepository.save(product);
+      if (!product) {
+        throw new NotFoundException(`Producto con ID ${id} no encontrado`);
+      }
+
+      if (updateDto.sku && updateDto.sku !== product.sku) {
+        const existing = await productRepo.findOne({
+          where: { sku: updateDto.sku },
+        });
+        if (existing) {
+          throw new ConflictException('Ya existe un producto con ese SKU');
+        }
+      }
+
+      const { adjustmentReason, ...otherUpdates } = updateDto;
+
+      if (updateDto.currentStock !== undefined) {
+        const oldStock = Number(product.currentStock) || 0;
+        const newStock = Number(updateDto.currentStock) || 0;
+        const diff = newStock - oldStock;
+
+        if (diff > 0) {
+          const avgPrice = Number(product.averagePurchasePrice) || 0;
+          const newBatch = batchRepo.create({
+            productId: product.id,
+            initialQuantity: diff,
+            remainingQuantity: diff,
+            purchasePrice: avgPrice,
+            adjustmentReason: adjustmentReason,
+          });
+          await batchRepo.save(newBatch);
+
+          product.currentStock = newStock;
+          Object.assign(product, otherUpdates);
+          await productRepo.save(product);
+
+          await this.recalculateAveragePrice(product.id, manager);
+        } else if (diff < 0) {
+          const absDiff = Math.abs(diff);
+          if (oldStock < absDiff) {
+            throw new BadRequestException(
+              `Stock insuficiente para realizar el ajuste. Disponible: ${oldStock}, Requerido: ${absDiff}`,
+            );
+          }
+
+          await this.consumeStock(product.id, absDiff, manager);
+
+          const avgPrice = Number(product.averagePurchasePrice) || 0;
+          const trackingBatch = batchRepo.create({
+            productId: product.id,
+            initialQuantity: diff,
+            remainingQuantity: 0,
+            purchasePrice: avgPrice,
+            adjustmentReason: adjustmentReason,
+          });
+          await batchRepo.save(trackingBatch);
+
+          const updatedProduct = await productRepo.findOne({ where: { id } });
+          if (!updatedProduct) {
+            throw new NotFoundException(`Producto con ID ${id} no encontrado`);
+          }
+          Object.assign(updatedProduct, otherUpdates);
+          await productRepo.save(updatedProduct);
+        } else {
+          Object.assign(product, otherUpdates);
+          await productRepo.save(product);
+        }
+      } else {
+        Object.assign(product, otherUpdates);
+        await productRepo.save(product);
+      }
+
+      const finalProduct = await productRepo.findOne({
+        where: { id },
+        relations: ['category'],
+      });
+      if (!finalProduct) {
+        throw new NotFoundException(`Producto con ID ${id} no encontrado`);
+      }
+      return finalProduct;
+    });
   }
 
   async removeProduct(id: string): Promise<void> {
@@ -317,23 +408,37 @@ export class InventoryService {
   }
 
   async getMovements(): Promise<any[]> {
-    // 1. Obtener entradas (In) desde los lotes creados
+    // 1. Obtener entradas/salidas desde los lotes creados
     const batches = await this.batchRepository.find({
       relations: ['product'],
       order: { createdAt: 'DESC' },
     });
 
-    const inMovements = batches.map((batch) => ({
-      id: `IN-${batch.id.substring(0, 8).toUpperCase()}`,
-      date: batch.createdAt.toISOString().split('T')[0],
-      type: 'In',
-      product: batch.product ? batch.product.name : 'Producto Eliminado',
-      quantity: batch.initialQuantity,
-      origin: batch.purchaseOrderId
-        ? 'Proveedor (Compra)'
-        : 'Ajuste de Inventario',
-      destination: 'Almacén Principal',
-    }));
+    const batchMovements = batches.map((batch) => {
+      const isNegative = Number(batch.initialQuantity) < 0;
+      const isManual = !batch.purchaseOrderId;
+
+      const type = isNegative ? 'Out' : 'In';
+      const idPrefix = isNegative ? 'OUT' : 'IN';
+
+      let origin = 'Proveedor (Compra)';
+      let destination = 'Almacén Principal';
+
+      if (isManual) {
+        origin = 'Ajuste de inventario';
+        destination = 'Ajuste de inventario';
+      }
+
+      return {
+        id: `${idPrefix}-${batch.id.substring(0, 8).toUpperCase()}`,
+        date: batch.createdAt.toISOString().split('T')[0],
+        type,
+        product: batch.product ? batch.product.name : 'Producto Eliminado',
+        quantity: Math.abs(Number(batch.initialQuantity)),
+        origin,
+        destination,
+      };
+    });
 
     // 2. Obtener salidas (Out) desde los ítems facturados de ventas
     const invoiceItemRepo =
@@ -357,7 +462,7 @@ export class InventoryService {
     }));
 
     // 3. Unificar y ordenar de forma cronológica descendente
-    return [...inMovements, ...outMovements].sort((a, b) => {
+    return [...batchMovements, ...outMovements].sort((a, b) => {
       return new Date(b.date).getTime() - new Date(a.date).getTime();
     });
   }

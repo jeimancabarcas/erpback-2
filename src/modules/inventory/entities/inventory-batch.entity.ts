@@ -33,6 +33,9 @@ export class InventoryBatch {
   @Column({ name: 'purchase_order_id', nullable: true })
   purchaseOrderId: string;
 
+  @Column({ name: 'adjustment_reason', nullable: true, type: 'text' })
+  adjustmentReason: string;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 
