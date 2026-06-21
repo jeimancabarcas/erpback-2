@@ -9,6 +9,7 @@ import {
   Query,
   UseGuards,
   ParseUUIDPipe,
+  Req,
 } from '@nestjs/common';
 import { InventoryService } from './inventory.service';
 import { CreateInventoryCategoryDto } from './dto/create-inventory-category.dto';
@@ -62,8 +63,8 @@ export class InventoryController {
   // --- Product Endpoints ---
 
   @Post('products')
-  createProduct(@Body() createDto: CreateProductDto) {
-    return this.inventoryService.createProduct(createDto);
+  createProduct(@Body() createDto: CreateProductDto, @Req() req: any) {
+    return this.inventoryService.createProduct(createDto, req.user);
   }
 
   @Get('products')
@@ -85,8 +86,9 @@ export class InventoryController {
   updateProduct(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() updateDto: UpdateProductDto,
+    @Req() req: any,
   ) {
-    return this.inventoryService.updateProduct(id, updateDto);
+    return this.inventoryService.updateProduct(id, updateDto, req.user);
   }
 
   @Delete('products/:id')

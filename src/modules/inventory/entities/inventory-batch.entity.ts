@@ -8,6 +8,8 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { Product } from './product.entity';
+import { User } from '../../users/entities/user.entity';
+
 
 @Entity('inventory_batches')
 export class InventoryBatch {
@@ -36,8 +38,16 @@ export class InventoryBatch {
   @Column({ name: 'adjustment_reason', nullable: true, type: 'text' })
   adjustmentReason: string;
 
+  @ManyToOne(() => User, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'user_id' })
+  user: User;
+
+  @Column({ name: 'user_id', nullable: true })
+  userId: string;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
+
 
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;

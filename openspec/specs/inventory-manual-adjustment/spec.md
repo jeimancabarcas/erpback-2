@@ -20,3 +20,25 @@ The system MUST include manual adjustments in compiled movements with origin/des
 - GIVEN a saved manual stock adjustment batch
 - WHEN movements are compiled
 - THEN the movement MUST show type In/Out and origin/destination as 'Ajuste de inventario'
+
+### Requirement: Operator Tracking
+The system MUST record the authenticated user who performed the stock creation or manual adjustment and compile it in the movements list as the 'operator'.
+
+#### Scenario: Compile movements with operator email
+- GIVEN a manual stock adjustment created by user 'admin@example.com'
+- WHEN movements are compiled
+- THEN the movement operator MUST be 'admin@example.com'
+
+#### Scenario: Compile movements without operator (system fallback)
+- GIVEN a system-generated stock movement (such as a purchase or invoice sale)
+- WHEN movements are compiled
+- THEN the movement operator MUST fall back to 'Sistema'
+
+### Requirement: Detailed Movements View
+The movements history table in the frontend MUST display the origin, destination, and operator details for all movements.
+
+#### Scenario: Render movements detailed columns
+- GIVEN the movements history page
+- WHEN the movements table is loaded
+- THEN the columns 'Origen', 'Destino', and 'Usuario' MUST be visible alongside existing fields
+

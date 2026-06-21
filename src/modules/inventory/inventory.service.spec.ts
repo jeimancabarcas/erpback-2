@@ -187,6 +187,49 @@ describe('InventoryService', () => {
       expect(batchRepo.create).not.toHaveBeenCalled();
       expect(result).toEqual(mockProduct);
     });
+
+    it('should create initial batch with associated user when user is passed', async () => {
+      const createDto = {
+        name: 'Test Product User',
+        sku: 'TEST-SKU-USER',
+        currentStock: 10,
+        minStock: 2,
+        maxStock: 50,
+        sellingPrice: 100,
+      };
+
+      const mockProduct = {
+        id: 'prod-uuid-user',
+        ...createDto,
+        averagePurchasePrice: 0,
+      } as Product;
+
+      const mockUser = { id: 'user-uuid', email: 'test@example.com' } as any;
+
+      mockProductRepository.findOne.mockResolvedValue(null);
+      mockProductRepository.create.mockReturnValue(mockProduct);
+      mockProductRepository.save.mockResolvedValue(mockProduct);
+      mockBatchRepository.create.mockReturnValue({
+        productId: 'prod-uuid-user',
+        initialQuantity: 10,
+        remainingQuantity: 10,
+        purchasePrice: 0,
+        adjustmentReason: 'Stock Inicial',
+        user: mockUser,
+      });
+
+      const result = await service.createProduct(createDto, mockUser);
+
+      expect(batchRepo.create).toHaveBeenCalledWith({
+        productId: 'prod-uuid-user',
+        initialQuantity: 10,
+        remainingQuantity: 10,
+        purchasePrice: 0,
+        adjustmentReason: 'Stock Inicial',
+        user: mockUser,
+      });
+      expect(result).toEqual(mockProduct);
+    });
   });
 
   describe('updateProduct stock adjustments', () => {
@@ -302,6 +345,63 @@ describe('InventoryService', () => {
         service.updateProduct(productId, negativeStockDto),
       ).rejects.toThrow(BadRequestException);
     });
+
+    it('should assign user to positive adjustment batch', async () => {
+      const updateDto: UpdateProductDto = {
+        currentStock: 15,
+        adjustmentReason: 'Auditoría',
+      };
+      const mockUser = { id: 'user-uuid', email: 'test@example.com' } as any;
+      const lockedProduct = { ...originalProduct };
+      mockProductRepository.findOne.mockResolvedValue(lockedProduct);
+      mockBatchRepository.find.mockResolvedValue([
+        { remainingQuantity: 10, purchasePrice: 15.0 },
+      ]);
+      mockProductRepository.save.mockImplementation((p) => Promise.resolve(p));
+
+      await service.updateProduct(productId, updateDto, mockUser);
+
+      expect(mockBatchRepository.create).toHaveBeenCalledWith({
+        productId: productId,
+        initialQuantity: 5,
+        remainingQuantity: 5,
+        purchasePrice: 15.0,
+        adjustmentReason: 'Auditoría',
+        user: mockUser,
+      });
+    });
+
+    it('should assign user to negative adjustment tracking batch', async () => {
+      const updateDto: UpdateProductDto = {
+        currentStock: 6,
+        adjustmentReason: 'Pérdida',
+      };
+      const mockUser = { id: 'user-uuid', email: 'test@example.com' } as any;
+      const lockedProduct = { ...originalProduct };
+      mockProductRepository.findOne.mockResolvedValue(lockedProduct);
+      const activeBatches = [
+        {
+          id: 'batch-1',
+          productId,
+          remainingQuantity: 10,
+          purchasePrice: 15.0,
+          save: jest.fn(),
+        },
+      ];
+      mockBatchRepository.find.mockResolvedValue(activeBatches);
+      mockProductRepository.save.mockImplementation((p) => Promise.resolve(p));
+
+      await service.updateProduct(productId, updateDto, mockUser);
+
+      expect(mockBatchRepository.create).toHaveBeenCalledWith({
+        productId,
+        initialQuantity: -4,
+        remainingQuantity: 0,
+        purchasePrice: 15.0,
+        adjustmentReason: 'Pérdida',
+        user: mockUser,
+      });
+    });
   });
 
   describe('getMovements', () => {
@@ -358,5 +458,74 @@ describe('InventoryService', () => {
       expect(purchase.origin).toBe('Proveedor (Compra)');
       expect(purchase.destination).toBe('Almacén Principal');
     });
+
+    it('should retrieve movements with operator email or Sistema fallback', async () => {
+      const mockBatches = [
+        {
+          id: 'b1111111-uuid',
+          createdAt: new Date('2026-06-20T12:00:00Z'),
+          initialQuantity: 10,
+          purchaseOrderId: null,
+          product: { name: 'Test Product' },
+          user: { email: 'operator@example.com' },
+        },
+        {
+          id: 'b2222222-uuid',
+          createdAt: new Date('2026-06-20T12:10:00Z'),
+          initialQuantity: -5,
+          purchaseOrderId: null,
+          product: { name: 'Test Product' },
+          user: null, // should fall back to 'Sistema'
+        },
+        {
+          id: 'b3333333-uuid',
+          createdAt: new Date('2026-06-20T12:20:00Z'),
+          initialQuantity: 8,
+          purchaseOrderId: 'po-uuid-1',
+          product: { name: 'Test Product' },
+          user: null,
+        },
+      ] as any[];
+
+      mockBatchRepository.find.mockResolvedValue(mockBatches);
+      mockInvoiceItemRepository.find.mockResolvedValue([
+        {
+          id: 'inv-item-1',
+          quantity: 2,
+          product: { name: 'Test Product' },
+          invoice: { date: new Date('2026-06-20T12:30:00Z') },
+        },
+      ]);
+
+      const result = await service.getMovements();
+
+      expect(batchRepo.find).toHaveBeenCalledWith({
+        relations: ['product', 'user'],
+        order: { createdAt: 'DESC' },
+      });
+
+      const manualPos = result.find((m) => m.id === 'IN-B1111111');
+      expect(manualPos.operator).toBe('operator@example.com');
+
+      const manualNeg = result.find((m) => m.id === 'OUT-B2222222');
+      expect(manualNeg.operator).toBe('Sistema');
+
+      const purchase = result.find((m) => m.id === 'IN-B3333333');
+      expect(purchase.operator).toBe('Sistema');
+
+      const sale = result.find((m) => m.id === 'OUT-INV-ITEM');
+      expect(sale.operator).toBe('Sistema');
+    });
+  });
+
+  describe('InventoryBatch Entity properties', () => {
+    it('should support setting user and userId', () => {
+      const batch = new InventoryBatch();
+      batch.userId = 'user-uuid';
+      batch.user = { id: 'user-uuid', email: 'test@example.com' } as any;
+      expect(batch.userId).toBe('user-uuid');
+      expect(batch.user.email).toBe('test@example.com');
+    });
   });
 });
+

@@ -10,6 +10,7 @@ import { InventoryCategory } from './entities/inventory-category.entity';
 import { Product } from './entities/product.entity';
 import { InventoryBatch } from './entities/inventory-batch.entity';
 import { InvoiceItem } from '../sales/entities/invoice-item.entity';
+import { User } from '../users/entities/user.entity';
 import { CreateInventoryCategoryDto } from './dto/create-inventory-category.dto';
 import { UpdateInventoryCategoryDto } from './dto/update-inventory-category.dto';
 import { QueryCategoriesDto } from './dto/query-categories.dto';
@@ -119,7 +120,10 @@ export class InventoryService {
 
   // --- Product Methods ---
 
-  async createProduct(createDto: CreateProductDto): Promise<Product> {
+  async createProduct(
+    createDto: CreateProductDto,
+    user?: User,
+  ): Promise<Product> {
     const { sku, name } = createDto;
 
     const existing = await this.productRepository.findOne({
@@ -140,6 +144,7 @@ export class InventoryService {
         remainingQuantity: savedProduct.currentStock,
         purchasePrice: 0,
         adjustmentReason: 'Stock Inicial',
+        user,
       });
       await this.batchRepository.save(initialBatch);
     }
@@ -195,6 +200,7 @@ export class InventoryService {
   async updateProduct(
     id: string,
     updateDto: UpdateProductDto,
+    user?: User,
   ): Promise<Product> {
     return this.productRepository.manager.transaction(async (manager) => {
       const productRepo = manager.getRepository(Product);
@@ -233,6 +239,7 @@ export class InventoryService {
             remainingQuantity: diff,
             purchasePrice: avgPrice,
             adjustmentReason: adjustmentReason,
+            user,
           });
           await batchRepo.save(newBatch);
 
@@ -258,6 +265,7 @@ export class InventoryService {
             remainingQuantity: 0,
             purchasePrice: avgPrice,
             adjustmentReason: adjustmentReason,
+            user,
           });
           await batchRepo.save(trackingBatch);
 
@@ -410,7 +418,7 @@ export class InventoryService {
   async getMovements(): Promise<any[]> {
     // 1. Obtener entradas/salidas desde los lotes creados
     const batches = await this.batchRepository.find({
-      relations: ['product'],
+      relations: ['product', 'user'],
       order: { createdAt: 'DESC' },
     });
 
@@ -437,6 +445,7 @@ export class InventoryService {
         quantity: Math.abs(Number(batch.initialQuantity)),
         origin,
         destination,
+        operator: batch.user ? batch.user.email : 'Sistema',
       };
     });
 
@@ -459,6 +468,7 @@ export class InventoryService {
       quantity: item.quantity,
       origin: 'Almacén Principal',
       destination: 'Cliente Final',
+      operator: 'Sistema',
     }));
 
     // 3. Unificar y ordenar de forma cronológica descendente
