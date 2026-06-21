@@ -204,11 +204,23 @@ export class SalesService {
       order: { [sortBy]: order },
       take: limit,
       skip,
-      relations: ['customer', 'items', 'items.product'],
+      relations: ['customer', 'items', 'items.product', 'creditNotes', 'debitNotes'],
+    });
+
+    const enriched = data.map((inv) => {
+      const creditSum = (inv.creditNotes ?? []).reduce(
+        (acc, cn) => acc + Number(cn.amount),
+        0,
+      );
+      const debitSum = (inv.debitNotes ?? []).reduce(
+        (acc, dn) => acc + Number(dn.amount),
+        0,
+      );
+      return { ...inv, netTotal: Number(inv.totalAmount) - creditSum + debitSum };
     });
 
     return {
-      data,
+      data: enriched,
       meta: {
         total,
         page,

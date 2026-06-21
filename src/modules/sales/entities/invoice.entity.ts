@@ -10,6 +10,8 @@ import {
 } from 'typeorm';
 import { Customer } from '../../customers/entities/customer.entity';
 import { InvoiceItem } from './invoice-item.entity';
+import { CreditNote } from './credit-note.entity';
+import { DebitNote } from './debit-note.entity';
 
 export enum InvoiceStatus {
   DRAFT = 'DRAFT',
@@ -37,6 +39,12 @@ export class Invoice {
 
   @OneToMany(() => InvoiceItem, (item) => item.invoice, { cascade: true })
   items: InvoiceItem[];
+
+  @OneToMany(() => CreditNote, (cn) => cn.invoice)
+  creditNotes: CreditNote[];
+
+  @OneToMany(() => DebitNote, (dn) => dn.invoice)
+  debitNotes: DebitNote[];
 
   @Column({ type: 'decimal', precision: 12, scale: 2, default: 0 })
   totalAmount: number;
