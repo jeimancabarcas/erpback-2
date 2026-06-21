@@ -56,6 +56,9 @@ export class Invoice {
   })
   status: InvoiceStatus;
 
+  @Column({ name: 'is_electronic', default: true })
+  isElectronic: boolean;
+
   @Column({ type: 'text', nullable: true })
   notes: string;
 

@@ -128,38 +128,49 @@ export class SalesService {
         });
       }
 
-      // 3. Generar referencia y llamar Factus API sincrónicamente
+      // 3. Generar número de factura y (si es electrónica) llamar Factus API
       const count = await this.invoiceRepository.count();
-      const referenceCode = `FAC-REF-${(count + 1).toString().padStart(4, '0')}-${Date.now()}`;
+      const isElectronic = createDto.isElectronic !== false;
 
-      const factusPayload = {
-        referenceCode,
-        paymentDetails: [
-          {
-            paymentForm: '1',
-            paymentMethodCode: '10',
-            amount: factusTotalAmount.toFixed(2),
-          },
-        ],
-        customer: this.mapCustomerToFactus(customer),
-        items: factusItems,
-      };
+      let invoiceNumber: string;
 
-      let invoiceNumber = `FAC-${(count + 1).toString().padStart(4, '0')}`;
-      try {
-        const factusResponse =
-          await this.factusGateway.createInvoice(factusPayload);
-        if (
-          factusResponse &&
-          factusResponse.data &&
-          factusResponse.data.number
-        ) {
-          invoiceNumber = factusResponse.data.number; // e.g. SETP990003678
+      if (!isElectronic) {
+        const manualCount = await this.invoiceRepository.count({
+          where: { isElectronic: false },
+        });
+        invoiceNumber = `MAN-${(manualCount + 1).toString().padStart(8, '0')}`;
+      } else {
+        const referenceCode = `FAC-REF-${(count + 1).toString().padStart(4, '0')}-${Date.now()}`;
+
+        const factusPayload = {
+          referenceCode,
+          paymentDetails: [
+            {
+              paymentForm: '1',
+              paymentMethodCode: '10',
+              amount: factusTotalAmount.toFixed(2),
+            },
+          ],
+          customer: this.mapCustomerToFactus(customer),
+          items: factusItems,
+        };
+
+        invoiceNumber = `FAC-${(count + 1).toString().padStart(4, '0')}`;
+        try {
+          const factusResponse =
+            await this.factusGateway.createInvoice(factusPayload);
+          if (
+            factusResponse &&
+            factusResponse.data &&
+            factusResponse.data.number
+          ) {
+            invoiceNumber = factusResponse.data.number; // e.g. SETP990003678
+          }
+        } catch (error) {
+          throw new BadRequestException(
+            `Error al emitir Factura en Factus: ${error.message}`,
+          );
         }
-      } catch (error) {
-        throw new BadRequestException(
-          `Error al emitir Factura en Factus: ${error.message}`,
-        );
       }
 
       // 4. Crear la factura local
@@ -169,6 +180,7 @@ export class SalesService {
         invoiceNumber,
         totalAmount,
         status: InvoiceStatus.PAID,
+        isElectronic: createDto.isElectronic ?? true,
         items: invoiceItems,
       });
 
@@ -355,6 +367,12 @@ export class SalesService {
       throw new NotFoundException(`Factura con ID ${invoiceId} no encontrada`);
     }
 
+    if (!invoice.isElectronic) {
+      throw new BadRequestException(
+        'No se pueden crear notas de crédito para facturas manuales',
+      );
+    }
+
     // 1. Determinar ítems de la nota de crédito
     const itemsToCredit: any[] = [];
     let totalAmount = 0;
@@ -497,6 +515,12 @@ export class SalesService {
 
     if (!invoice) {
       throw new NotFoundException(`Factura con ID ${invoiceId} no encontrada`);
+    }
+
+    if (!invoice.isElectronic) {
+      throw new BadRequestException(
+        'No se pueden crear notas de débito para facturas manuales',
+      );
     }
 
     // 1. Determinar ítems de la nota de débito
