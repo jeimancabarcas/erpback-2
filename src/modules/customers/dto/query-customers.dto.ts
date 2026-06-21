@@ -14,4 +14,8 @@ export class QueryCustomersDto extends PaginationDto {
   @IsOptional()
   @IsEnum(CustomerStatus)
   status?: CustomerStatus;
+
+  @IsOptional()
+  @IsString()
+  search?: string;
 }

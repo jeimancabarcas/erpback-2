@@ -28,8 +28,18 @@ describe('InventoryController', () => {
 
   it('should pass req.user to service.createProduct', async () => {
     const mockUser = { id: 'user-uuid', email: 'test@example.com' };
-    const createDto = { name: 'Prod', sku: 'SKU', currentStock: 10, minStock: 1, maxStock: 20, sellingPrice: 100 };
-    mockInventoryService.createProduct.mockResolvedValue({ id: 'prod-uuid', ...createDto });
+    const createDto = {
+      name: 'Prod',
+      sku: 'SKU',
+      currentStock: 10,
+      minStock: 1,
+      maxStock: 20,
+      sellingPrice: 100,
+    };
+    mockInventoryService.createProduct.mockResolvedValue({
+      id: 'prod-uuid',
+      ...createDto,
+    });
 
     const req = { user: mockUser };
     const result = await controller.createProduct(createDto, req);
@@ -41,12 +51,19 @@ describe('InventoryController', () => {
   it('should pass req.user to service.updateProduct', async () => {
     const mockUser = { id: 'user-uuid', email: 'test@example.com' };
     const updateDto = { currentStock: 15, adjustmentReason: 'Auditoría' };
-    mockInventoryService.updateProduct.mockResolvedValue({ id: 'prod-uuid', currentStock: 15 });
+    mockInventoryService.updateProduct.mockResolvedValue({
+      id: 'prod-uuid',
+      currentStock: 15,
+    });
 
     const req = { user: mockUser };
     const result = await controller.updateProduct('prod-uuid', updateDto, req);
 
-    expect(service.updateProduct).toHaveBeenCalledWith('prod-uuid', updateDto, mockUser);
+    expect(service.updateProduct).toHaveBeenCalledWith(
+      'prod-uuid',
+      updateDto,
+      mockUser,
+    );
     expect(result).toBeDefined();
   });
 });

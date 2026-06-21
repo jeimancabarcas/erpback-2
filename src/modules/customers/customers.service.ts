@@ -4,8 +4,8 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { Customer } from './entities/customer.entity';
+import { Repository, ILike, FindOptionsWhere } from 'typeorm';
+import { Customer, CustomerStatus } from './entities/customer.entity';
 import { Invoice } from '../sales/entities/invoice.entity';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
@@ -30,12 +30,12 @@ export class CustomersService {
       .select('COUNT(invoice.id)', 'invoiceCount')
       .addSelect('SUM(invoice.totalAmount)', 'totalInvoiced')
       .where('invoice.customer_id = :id', { id })
-      .getRawOne();
+      .getRawOne<{ invoiceCount?: string; totalInvoiced?: string }>();
 
     return {
       customer,
-      totalInvoiced: Number(stats.totalInvoiced) || 0,
-      invoiceCount: Number(stats.invoiceCount) || 0,
+      totalInvoiced: Number(stats?.totalInvoiced) || 0,
+      invoiceCount: Number(stats?.invoiceCount) || 0,
     };
   }
 
@@ -71,7 +71,21 @@ export class CustomersService {
     const { page = 1, limit = 10, sortBy = 'name', order = 'ASC' } = queryDto;
     const skip = (page - 1) * limit;
 
-    const where = buildWhere(queryDto, ['name', 'documentNumber'], ['status']);
+    let where: FindOptionsWhere<Customer> | FindOptionsWhere<Customer>[];
+    if (queryDto.search) {
+      const searchVal = `%${queryDto.search}%`;
+      const targetStatus = queryDto.status || CustomerStatus.ACTIVE;
+      where = [
+        { name: ILike(searchVal), status: targetStatus },
+        { documentNumber: ILike(searchVal), status: targetStatus },
+      ];
+    } else {
+      where = buildWhere(
+        queryDto,
+        ['name', 'documentNumber'],
+        ['status'],
+      ) as FindOptionsWhere<Customer>;
+    }
 
     const [data, total] = await this.customerRepository.findAndCount({
       where,

@@ -10,7 +10,6 @@ import {
 import { Product } from './product.entity';
 import { User } from '../../users/entities/user.entity';
 
-
 @Entity('inventory_batches')
 export class InventoryBatch {
   @PrimaryGeneratedColumn('uuid')
@@ -47,7 +46,6 @@ export class InventoryBatch {
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
-
 
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
