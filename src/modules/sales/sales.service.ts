@@ -2,18 +2,22 @@ import {
   Injectable,
   BadRequestException,
   NotFoundException,
+  InternalServerErrorException,
   Inject,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, Between } from 'typeorm';
+import { Repository, DataSource, Between, Like } from 'typeorm';
 import { Invoice, InvoiceStatus } from './entities/invoice.entity';
 import { InvoiceItem } from './entities/invoice-item.entity';
 import { CreditNote } from './entities/credit-note.entity';
 import { DebitNote } from './entities/debit-note.entity';
+import { CreditNoteItem } from './entities/credit-note-item.entity';
+import { DebitNoteItem } from './entities/debit-note-item.entity';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { QueryInvoicesDto } from './dto/query-invoices.dto';
 import { CreateSalesNoteDto } from './dto/create-sales-note.dto';
 import { InventoryService } from '../inventory/inventory.service';
+import { PdfGenerationService } from '../pdf-generation/pdf-generation.service';
 import { PaginatedResult } from '../../common/interfaces/paginated-result.interface';
 import { buildWhere } from '../../common/helpers/query.helper';
 import {
@@ -34,9 +38,14 @@ export class SalesService {
     private readonly creditNoteRepository: Repository<CreditNote>,
     @InjectRepository(DebitNote)
     private readonly debitNoteRepository: Repository<DebitNote>,
+    @InjectRepository(CreditNoteItem)
+    private readonly creditNoteItemRepository: Repository<CreditNoteItem>,
+    @InjectRepository(DebitNoteItem)
+    private readonly debitNoteItemRepository: Repository<DebitNoteItem>,
     @Inject('IFactusInvoicingGateway')
     private readonly factusGateway: any,
     private readonly inventoryService: InventoryService,
+    private readonly pdfGenerationService: PdfGenerationService,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -211,12 +220,22 @@ export class SalesService {
       ['customerId', 'status'],
     );
 
+    if (queryDto.isElectronic !== undefined) {
+      where.isElectronic = queryDto.isElectronic;
+    }
+
     const [data, total] = await this.invoiceRepository.findAndCount({
       where,
       order: { [sortBy]: order },
       take: limit,
       skip,
-      relations: ['customer', 'items', 'items.product', 'creditNotes', 'debitNotes'],
+      relations: [
+        'customer',
+        'items',
+        'items.product',
+        'creditNotes',
+        'debitNotes',
+      ],
     });
 
     const enriched = data.map((inv) => {
@@ -228,7 +247,10 @@ export class SalesService {
         (acc, dn) => acc + Number(dn.amount),
         0,
       );
-      return { ...inv, netTotal: Number(inv.totalAmount) - creditSum + debitSum };
+      return {
+        ...inv,
+        netTotal: Number(inv.totalAmount) - creditSum + debitSum,
+      };
     });
 
     return {
@@ -354,6 +376,238 @@ export class SalesService {
     };
   }
 
+  private async getNextManualNoteNumber(
+    queryRunner: any,
+    invoice: Invoice,
+    prefix: 'NC-MAN' | 'ND-MAN',
+  ): Promise<string> {
+    const entityClass = prefix === 'NC-MAN' ? CreditNote : DebitNote;
+    const count = await queryRunner.manager.count(entityClass, {
+      where: { invoiceId: invoice.id, noteNumber: Like(`${prefix}-%`) },
+    });
+    const seq = count + 1;
+    return `${prefix}-${invoice.invoiceNumber}-${seq}`;
+  }
+
+  private async createCreditNoteLocal(
+    invoice: Invoice,
+    dto: CreateSalesNoteDto,
+  ): Promise<CreditNote> {
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      const noteNumber = await this.getNextManualNoteNumber(
+        queryRunner,
+        invoice,
+        'NC-MAN',
+      );
+
+      let totalAmount = 0;
+      const noteItems: Partial<CreditNoteItem>[] = [];
+
+      if (dto.items && dto.items.length > 0) {
+        for (const itemDto of dto.items) {
+          const matchingInvoiceItem = invoice.items.find(
+            (ii) =>
+              ii.product?.sku === itemDto.codeReference ||
+              ii.productId === itemDto.codeReference,
+          );
+
+          if (!matchingInvoiceItem) {
+            throw new BadRequestException(
+              `El ítem con código ${itemDto.codeReference} no pertenece a esta factura`,
+            );
+          }
+
+          if (itemDto.quantity > matchingInvoiceItem.quantity) {
+            throw new BadRequestException(
+              `La cantidad a acreditar (${itemDto.quantity}) supera la cantidad facturada (${matchingInvoiceItem.quantity})`,
+            );
+          }
+
+          const price =
+            itemDto.price !== undefined
+              ? Number(itemDto.price)
+              : Number(matchingInvoiceItem.unitPrice);
+
+          const subtotal = itemDto.quantity * price;
+          totalAmount += subtotal;
+
+          noteItems.push({
+            creditNoteId: undefined,
+            codeReference: itemDto.codeReference,
+            name: matchingInvoiceItem.product?.name || 'Producto',
+            quantity: itemDto.quantity,
+            unitPrice: price,
+            subtotal,
+          });
+        }
+      } else {
+        totalAmount = Number(invoice.totalAmount);
+        for (const item of invoice.items) {
+          const subtotal = Number(item.quantity) * Number(item.unitPrice);
+          noteItems.push({
+            creditNoteId: undefined,
+            codeReference: item.product?.sku || item.productId,
+            name: item.product?.name || 'Producto',
+            quantity: Number(item.quantity),
+            unitPrice: Number(item.unitPrice),
+            subtotal,
+          });
+        }
+      }
+
+      const referenceCode = `NC-${invoice.invoiceNumber}-${Date.now()}`;
+
+      const creditNote = this.creditNoteRepository.create({
+        referenceCode,
+        noteNumber,
+        cude: null,
+        correctionConceptCode: dto.correctionConceptCode,
+        amount: totalAmount,
+        observation: dto.observation,
+        qrUrl: null,
+        publicUrl: null,
+        invoiceId: invoice.id,
+      });
+
+      const savedNote = await queryRunner.manager.save(creditNote);
+
+      for (const item of noteItems) {
+        item.creditNoteId = savedNote.id;
+      }
+      await queryRunner.manager.save(CreditNoteItem, noteItems);
+
+      if (dto.correctionConceptCode === '2') {
+        invoice.status = InvoiceStatus.CANCELLED;
+        await queryRunner.manager.save(invoice);
+      }
+
+      await queryRunner.commitTransaction();
+
+      savedNote.items = noteItems as CreditNoteItem[];
+      return savedNote;
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error instanceof BadRequestException
+        ? error
+        : new BadRequestException(
+            `Error al crear nota de crédito: ${error.message}`,
+          );
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  private async createDebitNoteLocal(
+    invoice: Invoice,
+    dto: CreateSalesNoteDto,
+  ): Promise<DebitNote> {
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      const noteNumber = await this.getNextManualNoteNumber(
+        queryRunner,
+        invoice,
+        'ND-MAN',
+      );
+
+      let totalAmount = 0;
+      const noteItems: Partial<DebitNoteItem>[] = [];
+
+      if (dto.items && dto.items.length > 0) {
+        for (const itemDto of dto.items) {
+          const matchingInvoiceItem = invoice.items.find(
+            (ii) =>
+              ii.product?.sku === itemDto.codeReference ||
+              ii.productId === itemDto.codeReference,
+          );
+
+          if (!matchingInvoiceItem) {
+            throw new BadRequestException(
+              `El ítem con código ${itemDto.codeReference} no pertenece a esta factura`,
+            );
+          }
+
+          if (itemDto.quantity > matchingInvoiceItem.quantity) {
+            throw new BadRequestException(
+              `La cantidad a debitar (${itemDto.quantity}) supera la cantidad facturada (${matchingInvoiceItem.quantity})`,
+            );
+          }
+
+          const price =
+            itemDto.price !== undefined
+              ? Number(itemDto.price)
+              : Number(matchingInvoiceItem.unitPrice);
+
+          const subtotal = itemDto.quantity * price;
+          totalAmount += subtotal;
+
+          noteItems.push({
+            debitNoteId: undefined,
+            codeReference: itemDto.codeReference,
+            name: matchingInvoiceItem.product?.name || 'Producto',
+            quantity: itemDto.quantity,
+            unitPrice: price,
+            subtotal,
+          });
+        }
+      } else {
+        totalAmount = Number(invoice.totalAmount);
+        for (const item of invoice.items) {
+          const subtotal = Number(item.quantity) * Number(item.unitPrice);
+          noteItems.push({
+            debitNoteId: undefined,
+            codeReference: item.product?.sku || item.productId,
+            name: item.product?.name || 'Producto',
+            quantity: Number(item.quantity),
+            unitPrice: Number(item.unitPrice),
+            subtotal,
+          });
+        }
+      }
+
+      const referenceCode = `ND-${invoice.invoiceNumber}-${Date.now()}`;
+
+      const debitNote = this.debitNoteRepository.create({
+        referenceCode,
+        noteNumber,
+        cude: null,
+        correctionConceptCode: dto.correctionConceptCode,
+        amount: totalAmount,
+        observation: dto.observation,
+        qrUrl: null,
+        publicUrl: null,
+        invoiceId: invoice.id,
+      });
+
+      const savedNote = await queryRunner.manager.save(debitNote);
+
+      for (const item of noteItems) {
+        item.debitNoteId = savedNote.id;
+      }
+      await queryRunner.manager.save(DebitNoteItem, noteItems);
+
+      await queryRunner.commitTransaction();
+
+      savedNote.items = noteItems as DebitNoteItem[];
+      return savedNote;
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error instanceof BadRequestException
+        ? error
+        : new BadRequestException(
+            `Error al crear nota de débito: ${error.message}`,
+          );
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
   async createCreditNote(
     invoiceId: string,
     dto: CreateSalesNoteDto,
@@ -367,13 +621,18 @@ export class SalesService {
       throw new NotFoundException(`Factura con ID ${invoiceId} no encontrada`);
     }
 
-    if (!invoice.isElectronic) {
+    if (invoice.status === InvoiceStatus.CANCELLED) {
       throw new BadRequestException(
-        'No se pueden crear notas de crédito para facturas manuales',
+        'No se pueden crear notas de crédito para facturas anuladas',
       );
     }
 
-    // 1. Determinar ítems de la nota de crédito
+    // --- Manual invoice path ---
+    if (!invoice.isElectronic) {
+      return this.createCreditNoteLocal(invoice, dto);
+    }
+
+    // --- Electronic invoice path (unchanged) ---
     const itemsToCredit: any[] = [];
     let totalAmount = 0;
     let factusTotalAmount = 0;
@@ -398,7 +657,6 @@ export class SalesService {
           );
         }
 
-        // Obtener el precio del producto si no es provisto por el front
         const price =
           itemDto.price !== undefined
             ? Number(itemDto.price)
@@ -423,7 +681,6 @@ export class SalesService {
         });
       }
     } else {
-      // Nota crédito por el valor total
       totalAmount = Number(invoice.totalAmount);
       for (const item of invoice.items) {
         const priceBeforeTax = Number(
@@ -446,10 +703,8 @@ export class SalesService {
       }
     }
 
-    // 2. Generar código de referencia único (idempotencia)
     const referenceCode = `NC-${invoice.invoiceNumber}-${Date.now()}`;
 
-    // 3. Preparar llamada a Factus API
     const factusPayload = {
       referenceCode,
       correctionConceptCode: dto.correctionConceptCode,
@@ -471,7 +726,6 @@ export class SalesService {
       const factusResponse =
         await this.factusGateway.createCreditNote(factusPayload);
 
-      // 4. Guardar nota de crédito localmente
       const creditNote = this.creditNoteRepository.create({
         referenceCode,
         noteNumber: factusResponse.data.number || `NC-PEND-${Date.now()}`,
@@ -490,7 +744,6 @@ export class SalesService {
 
       const savedNote = await this.creditNoteRepository.save(creditNote);
 
-      // Si el concepto es 2 (Anulación total), cambiamos estado de la factura a CANCELLED
       if (dto.correctionConceptCode === '2') {
         invoice.status = InvoiceStatus.CANCELLED;
         await this.invoiceRepository.save(invoice);
@@ -517,13 +770,12 @@ export class SalesService {
       throw new NotFoundException(`Factura con ID ${invoiceId} no encontrada`);
     }
 
+    // --- Manual invoice path ---
     if (!invoice.isElectronic) {
-      throw new BadRequestException(
-        'No se pueden crear notas de débito para facturas manuales',
-      );
+      return this.createDebitNoteLocal(invoice, dto);
     }
 
-    // 1. Determinar ítems de la nota de débito
+    // --- Electronic invoice path (unchanged) ---
     const itemsToDebit: any[] = [];
     let totalAmount = 0;
     let factusTotalAmount = 0;
@@ -536,7 +788,18 @@ export class SalesService {
             ii.productId === itemDto.codeReference,
         );
 
-        // Obtener el precio del producto si no es provisto por el front
+        if (!matchingInvoiceItem) {
+          throw new BadRequestException(
+            `El ítem con código ${itemDto.codeReference} no pertenece a esta factura`,
+          );
+        }
+
+        if (itemDto.quantity > matchingInvoiceItem.quantity) {
+          throw new BadRequestException(
+            `La cantidad a debitar (${itemDto.quantity}) supera la cantidad facturada (${matchingInvoiceItem.quantity})`,
+          );
+        }
+
         const price =
           itemDto.price !== undefined
             ? Number(itemDto.price)
@@ -583,10 +846,8 @@ export class SalesService {
       }
     }
 
-    // 2. Generar código de referencia único
     const referenceCode = `ND-${invoice.invoiceNumber}-${Date.now()}`;
 
-    // 3. Preparar llamada a Factus API
     const factusPayload = {
       referenceCode,
       correctionConceptCode: dto.correctionConceptCode,
@@ -608,7 +869,6 @@ export class SalesService {
       const factusResponse =
         await this.factusGateway.createDebitNote(factusPayload);
 
-      // 4. Guardar nota de débito localmente
       const debitNote = this.debitNoteRepository.create({
         referenceCode,
         noteNumber: factusResponse.data.number || `ND-PEND-${Date.now()}`,
@@ -670,7 +930,44 @@ export class SalesService {
   async downloadInvoicePdf(
     id: string,
   ): Promise<{ pdfBase64Encoded: string; fileName: string }> {
-    const invoice = await this.findOne(id);
+    const invoice = await this.invoiceRepository.findOne({
+      where: { id },
+      relations: ['customer', 'items', 'items.product'],
+    });
+
+    if (!invoice) {
+      throw new NotFoundException(`Factura con ID ${id} no encontrada`);
+    }
+
+    if (!invoice.isElectronic) {
+      const creditNotes = await this.creditNoteRepository.find({
+        where: { invoiceId: id },
+        relations: ['items'],
+        order: { createdAt: 'ASC' },
+      });
+
+      const debitNotes = await this.debitNoteRepository.find({
+        where: { invoiceId: id },
+        relations: ['items'],
+        order: { createdAt: 'ASC' },
+      });
+
+      try {
+        const pdfBase64Encoded =
+          await this.pdfGenerationService.generateInvoicePdf(
+            invoice,
+            creditNotes,
+            debitNotes,
+          );
+        const fileName = `${invoice.invoiceNumber}-historial.pdf`;
+        return { pdfBase64Encoded, fileName };
+      } catch (error) {
+        throw new InternalServerErrorException(
+          `Error al generar el PDF: ${error.message}`,
+        );
+      }
+    }
+
     if (!invoice.invoiceNumber) {
       throw new BadRequestException(
         'La factura no tiene un número oficial asignado',

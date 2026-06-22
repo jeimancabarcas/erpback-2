@@ -1,0 +1,9 @@
+phases:
+  explore: completed
+  propose: completed
+  spec: completed
+  design: pending
+  tasks: pending
+  apply: pending
+  verify: pending
+next_phase: design

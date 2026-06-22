@@ -5,9 +5,11 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   ManyToOne,
+  OneToMany,
   JoinColumn,
 } from 'typeorm';
 import { Invoice } from './invoice.entity';
+import { DebitNoteItem } from './debit-note-item.entity';
 
 @Entity('debit_notes')
 export class DebitNote {
@@ -44,6 +46,9 @@ export class DebitNote {
 
   @Column({ name: 'invoice_id' })
   invoiceId: string;
+
+  @OneToMany(() => DebitNoteItem, (item) => item.debitNote, { cascade: true })
+  items: DebitNoteItem[];
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

@@ -4,16 +4,27 @@ import { Invoice } from './entities/invoice.entity';
 import { InvoiceItem } from './entities/invoice-item.entity';
 import { CreditNote } from './entities/credit-note.entity';
 import { DebitNote } from './entities/debit-note.entity';
+import { CreditNoteItem } from './entities/credit-note-item.entity';
+import { DebitNoteItem } from './entities/debit-note-item.entity';
 import { SalesService } from './sales.service';
 import { SalesController } from './sales.controller';
 import { InventoryModule } from '../inventory/inventory.module';
 import { FactusModule } from '../factus/factus.module';
+import { PdfGenerationModule } from '../pdf-generation/pdf-generation.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Invoice, InvoiceItem, CreditNote, DebitNote]),
+    TypeOrmModule.forFeature([
+      Invoice,
+      InvoiceItem,
+      CreditNote,
+      DebitNote,
+      CreditNoteItem,
+      DebitNoteItem,
+    ]),
     InventoryModule,
     FactusModule,
+    PdfGenerationModule,
   ],
   controllers: [SalesController],
   providers: [SalesService],

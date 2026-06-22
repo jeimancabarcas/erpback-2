@@ -20,7 +20,10 @@ import { Invoice } from './modules/sales/entities/invoice.entity';
 import { InvoiceItem } from './modules/sales/entities/invoice-item.entity';
 import { CreditNote } from './modules/sales/entities/credit-note.entity';
 import { DebitNote } from './modules/sales/entities/debit-note.entity';
+import { CreditNoteItem } from './modules/sales/entities/credit-note-item.entity';
+import { DebitNoteItem } from './modules/sales/entities/debit-note-item.entity';
 import { FactusModule } from './modules/factus/factus.module';
+import { PdfGenerationModule } from './modules/pdf-generation/pdf-generation.module';
 
 @Module({
   imports: [
@@ -50,6 +53,8 @@ import { FactusModule } from './modules/factus/factus.module';
           InvoiceItem,
           CreditNote,
           DebitNote,
+          CreditNoteItem,
+          DebitNoteItem,
         ],
         synchronize: true, // Only for development
       }),
@@ -62,6 +67,7 @@ import { FactusModule } from './modules/factus/factus.module';
     CustomersModule,
     SalesModule,
     FactusModule,
+    PdfGenerationModule,
   ],
 })
 export class AppModule {}
