@@ -15,6 +15,7 @@ import { InventoryService } from './inventory.service';
 import { CreateInventoryCategoryDto } from './dto/create-inventory-category.dto';
 import { UpdateInventoryCategoryDto } from './dto/update-inventory-category.dto';
 import { QueryCategoriesDto } from './dto/query-categories.dto';
+import { QueryMovementsDto } from './dto/query-movements.dto';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { QueryProductsDto } from './dto/query-products.dto';
@@ -56,8 +57,8 @@ export class InventoryController {
   }
 
   @Get('movements')
-  getMovements() {
-    return this.inventoryService.getMovements();
+  getMovements(@Query() queryDto: QueryMovementsDto) {
+    return this.inventoryService.getMovements(queryDto);
   }
 
   @Get('stats/valuation')

@@ -433,25 +433,26 @@ describe('InventoryService', () => {
       mockBatchRepository.find.mockResolvedValue(mockBatches);
       mockInvoiceItemRepository.find.mockResolvedValue([]); // no invoices
 
-      const result = await service.getMovements();
+      const result = await service.getMovements({});
 
-      expect(result).toHaveLength(3);
+      expect(result.data).toHaveLength(3);
+      expect(result.meta.total).toBe(3);
 
-      const manualPos = result.find((m) => m.id === 'IN-B1111111');
+      const manualPos = result.data.find((m) => m.id === 'IN-B1111111');
       expect(manualPos).toBeDefined();
       expect(manualPos.type).toBe('In');
       expect(manualPos.quantity).toBe(10);
       expect(manualPos.origin).toBe('Ajuste de inventario');
       expect(manualPos.destination).toBe('Ajuste de inventario');
 
-      const manualNeg = result.find((m) => m.id === 'OUT-B2222222');
+      const manualNeg = result.data.find((m) => m.id === 'OUT-B2222222');
       expect(manualNeg).toBeDefined();
       expect(manualNeg.type).toBe('Out');
       expect(manualNeg.quantity).toBe(5);
       expect(manualNeg.origin).toBe('Ajuste de inventario');
       expect(manualNeg.destination).toBe('Ajuste de inventario');
 
-      const purchase = result.find((m) => m.id === 'IN-B3333333');
+      const purchase = result.data.find((m) => m.id === 'IN-B3333333');
       expect(purchase).toBeDefined();
       expect(purchase.type).toBe('In');
       expect(purchase.quantity).toBe(8);
@@ -497,23 +498,22 @@ describe('InventoryService', () => {
         },
       ]);
 
-      const result = await service.getMovements();
+      const result = await service.getMovements({});
 
       expect(batchRepo.find).toHaveBeenCalledWith({
         relations: ['product', 'user'],
-        order: { createdAt: 'DESC' },
       });
 
-      const manualPos = result.find((m) => m.id === 'IN-B1111111');
+      const manualPos = result.data.find((m) => m.id === 'IN-B1111111');
       expect(manualPos.operator).toBe('operator@example.com');
 
-      const manualNeg = result.find((m) => m.id === 'OUT-B2222222');
+      const manualNeg = result.data.find((m) => m.id === 'OUT-B2222222');
       expect(manualNeg.operator).toBe('Sistema');
 
-      const purchase = result.find((m) => m.id === 'IN-B3333333');
+      const purchase = result.data.find((m) => m.id === 'IN-B3333333');
       expect(purchase.operator).toBe('Sistema');
 
-      const sale = result.find((m) => m.id === 'OUT-INV-ITEM');
+      const sale = result.data.find((m) => m.id === 'OUT-INV-ITEM');
       expect(sale.operator).toBe('Sistema');
     });
   });

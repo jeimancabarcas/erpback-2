@@ -17,6 +17,7 @@ import { QueryCategoriesDto } from './dto/query-categories.dto';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { QueryProductsDto } from './dto/query-products.dto';
+import { QueryMovementsDto } from './dto/query-movements.dto';
 import { PaginatedResult } from '../../common/interfaces/paginated-result.interface';
 import { buildWhere } from '../../common/helpers/query.helper';
 
@@ -415,18 +416,28 @@ export class InventoryService {
     });
   }
 
-  async getMovements(): Promise<any[]> {
+  async getMovements(
+    queryDto: QueryMovementsDto,
+  ): Promise<PaginatedResult<any>> {
+    const {
+      page = 1,
+      limit = 10,
+      sortBy = 'date',
+      order = 'DESC',
+      type,
+      userId,
+    } = queryDto;
+
     // 1. Obtener entradas/salidas desde los lotes creados
     const batches = await this.batchRepository.find({
       relations: ['product', 'user'],
-      order: { createdAt: 'DESC' },
     });
 
     const batchMovements = batches.map((batch) => {
       const isNegative = Number(batch.initialQuantity) < 0;
       const isManual = !batch.purchaseOrderId;
 
-      const type = isNegative ? 'Out' : 'In';
+      const movementType = isNegative ? 'Out' : 'In';
       const idPrefix = isNegative ? 'OUT' : 'IN';
 
       let origin = 'Proveedor (Compra)';
@@ -439,13 +450,14 @@ export class InventoryService {
 
       return {
         id: `${idPrefix}-${batch.id.substring(0, 8).toUpperCase()}`,
-        date: batch.createdAt.toISOString().split('T')[0],
-        type,
+        date: batch.createdAt,
+        type: movementType,
         product: batch.product ? batch.product.name : 'Producto Eliminado',
         quantity: Math.abs(Number(batch.initialQuantity)),
         origin,
         destination,
         operator: batch.user ? batch.user.email : 'Sistema',
+        operatorId: batch.userId,
       };
     });
 
@@ -454,27 +466,65 @@ export class InventoryService {
       this.productRepository.manager.getRepository(InvoiceItem);
     const invoiceItems = await invoiceItemRepo.find({
       relations: ['product', 'invoice'],
-      order: { invoice: { date: 'DESC' } },
     });
 
     const outMovements = invoiceItems.map((item) => ({
       id: `OUT-${item.id.substring(0, 8).toUpperCase()}`,
-      date:
-        item.invoice && item.invoice.date
-          ? new Date(item.invoice.date).toISOString().split('T')[0]
-          : new Date().toISOString().split('T')[0],
-      type: 'Out',
+      date: item.invoice?.date
+        ? new Date(item.invoice.date)
+        : new Date(),
+      type: 'Out' as const,
       product: item.product ? item.product.name : 'Producto Eliminado',
       quantity: item.quantity,
       origin: 'Almacén Principal',
       destination: 'Cliente Final',
       operator: 'Sistema',
+      operatorId: null,
     }));
 
-    // 3. Unificar y ordenar de forma cronológica descendente
-    return [...batchMovements, ...outMovements].sort((a, b) => {
-      return new Date(b.date).getTime() - new Date(a.date).getTime();
+    // 3. Unificar
+    let movements = [...batchMovements, ...outMovements];
+
+    // 4. Filtrar
+    if (type) {
+      movements = movements.filter((m) => m.type === type);
+    }
+    if (userId) {
+      movements = movements.filter((m) => m.operatorId === userId);
+    }
+
+    // 5. Ordenar
+    movements.sort((a, b) => {
+      const aVal = a[sortBy];
+      const bVal = b[sortBy];
+      const cmp =
+        aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
+      return order === 'DESC' ? -cmp : cmp;
     });
+
+    // 6. Paginar
+    const total = movements.length;
+    const skip = (page - 1) * limit;
+    const data = movements.slice(skip, skip + limit);
+
+    // Formatear fecha para respuesta
+    const formatted = data.map((m) => ({
+      ...m,
+      date:
+        m.date instanceof Date
+          ? m.date.toISOString().split('T')[0]
+          : m.date,
+    }));
+
+    return {
+      data: formatted,
+      meta: {
+        total,
+        page,
+        lastPage: Math.ceil(total / limit),
+        limit,
+      },
+    };
   }
 
   async getValuation(): Promise<{
