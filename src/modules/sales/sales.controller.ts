@@ -70,6 +70,11 @@ export class SalesController {
     return this.salesService.downloadInvoicePdf(id);
   }
 
+  @Get('invoices/:id/dian-pdf')
+  downloadDianPdf(@Param('id', ParseUUIDPipe) id: string) {
+    return this.salesService.downloadDianPdf(id);
+  }
+
   @Get('credit-notes/:id/pdf')
   downloadCreditNotePdf(@Param('id', ParseUUIDPipe) id: string) {
     return this.salesService.downloadAdjustmentNotePdf(id, 'Credit');

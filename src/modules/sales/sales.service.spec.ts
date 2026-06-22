@@ -609,14 +609,30 @@ describe('SalesService — manual invoice paths', () => {
     });
   });
 
-  it('downloadInvoicePdf for electronic invoice still calls Factus', async () => {
+  it('downloadInvoicePdf for electronic invoice generates history PDF', async () => {
     const result = await service.downloadInvoicePdf('inv-electronic');
+
+    expect(pdfServiceMock.generateInvoicePdf).toHaveBeenCalledTimes(1);
+    expect(factusGatewayMock.downloadInvoicePdf).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      pdfBase64Encoded: 'JVBERi0xLjc=',
+      fileName: 'SETP990001-historial.pdf',
+    });
+  });
+
+  it('downloadDianPdf returns DIAN PDF for electronic invoice', async () => {
+    const result = await service.downloadDianPdf('inv-electronic');
 
     expect(factusGatewayMock.downloadInvoicePdf).toHaveBeenCalledTimes(1);
     expect(factusGatewayMock.downloadInvoicePdf).toHaveBeenCalledWith(
       'SETP990001',
     );
-    expect(pdfServiceMock.generateInvoicePdf).not.toHaveBeenCalled();
+  });
+
+  it('downloadDianPdf throws for manual invoice', async () => {
+    await expect(service.downloadDianPdf('inv-manual')).rejects.toThrow(
+      'manuales no tienen PDF',
+    );
   });
 
   it('downloadInvoicePdf throws NotFoundException for non-existent invoice', async () => {

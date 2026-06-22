@@ -939,33 +939,49 @@ export class SalesService {
       throw new NotFoundException(`Factura con ID ${id} no encontrada`);
     }
 
-    if (!invoice.isElectronic) {
-      const creditNotes = await this.creditNoteRepository.find({
-        where: { invoiceId: id },
-        relations: ['items'],
-        order: { createdAt: 'ASC' },
-      });
+    const creditNotes = await this.creditNoteRepository.find({
+      where: { invoiceId: id },
+      relations: ['items'],
+      order: { createdAt: 'ASC' },
+    });
 
-      const debitNotes = await this.debitNoteRepository.find({
-        where: { invoiceId: id },
-        relations: ['items'],
-        order: { createdAt: 'ASC' },
-      });
+    const debitNotes = await this.debitNoteRepository.find({
+      where: { invoiceId: id },
+      relations: ['items'],
+      order: { createdAt: 'ASC' },
+    });
 
-      try {
-        const pdfBase64Encoded =
-          await this.pdfGenerationService.generateInvoicePdf(
-            invoice,
-            creditNotes,
-            debitNotes,
-          );
-        const fileName = `${invoice.invoiceNumber}-historial.pdf`;
-        return { pdfBase64Encoded, fileName };
-      } catch (error) {
-        throw new InternalServerErrorException(
-          `Error al generar el PDF: ${error.message}`,
+    try {
+      const pdfBase64Encoded =
+        await this.pdfGenerationService.generateInvoicePdf(
+          invoice,
+          creditNotes,
+          debitNotes,
         );
-      }
+      const fileName = `${invoice.invoiceNumber}-historial.pdf`;
+      return { pdfBase64Encoded, fileName };
+    } catch (error) {
+      throw new InternalServerErrorException(
+        `Error al generar el PDF: ${error.message}`,
+      );
+    }
+  }
+
+  async downloadDianPdf(
+    id: string,
+  ): Promise<{ pdfBase64Encoded: string; fileName: string }> {
+    const invoice = await this.invoiceRepository.findOne({
+      where: { id },
+    });
+
+    if (!invoice) {
+      throw new NotFoundException(`Factura con ID ${id} no encontrada`);
+    }
+
+    if (!invoice.isElectronic) {
+      throw new BadRequestException(
+        'Las facturas manuales no tienen PDF de la DIAN',
+      );
     }
 
     if (!invoice.invoiceNumber) {
@@ -973,6 +989,7 @@ export class SalesService {
         'La factura no tiene un número oficial asignado',
       );
     }
+
     return this.factusGateway.downloadInvoicePdf(invoice.invoiceNumber);
   }
 
