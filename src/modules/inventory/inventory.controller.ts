@@ -60,6 +60,11 @@ export class InventoryController {
     return this.inventoryService.getMovements();
   }
 
+  @Get('stats/valuation')
+  getValuation() {
+    return this.inventoryService.getValuation();
+  }
+
   // --- Product Endpoints ---
 
   @Post('products')

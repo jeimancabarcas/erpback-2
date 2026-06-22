@@ -476,4 +476,38 @@ export class InventoryService {
       return new Date(b.date).getTime() - new Date(a.date).getTime();
     });
   }
+
+  async getValuation(): Promise<{
+    totalValue: number;
+    totalStock: number;
+    productCount: number;
+    averageCostPerUnit: number;
+  }> {
+    const batches = await this.batchRepository.find({
+      where: { remainingQuantity: MoreThan(0) },
+      relations: ['product'],
+    });
+
+    let totalValue = 0;
+    let totalStock = 0;
+    const productIds = new Set<string>();
+
+    for (const batch of batches) {
+      const qty = Number(batch.remainingQuantity);
+      const price = Number(batch.purchasePrice);
+      totalStock += qty;
+      totalValue += qty * price;
+      productIds.add(batch.productId);
+    }
+
+    return {
+      totalValue: Number(totalValue.toFixed(2)),
+      totalStock,
+      productCount: productIds.size,
+      averageCostPerUnit:
+        totalStock > 0
+          ? Number((totalValue / totalStock).toFixed(2))
+          : 0,
+    };
+  }
 }
