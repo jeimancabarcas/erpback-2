@@ -5,9 +5,10 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, ILike, MoreThan, EntityManager } from 'typeorm';
+import { Repository, ILike, MoreThan, EntityManager, In } from 'typeorm';
 import { InventoryCategory } from './entities/inventory-category.entity';
 import { Product } from './entities/product.entity';
+import { Tax } from '../settings/entities/tax.entity';
 import { InventoryBatch } from './entities/inventory-batch.entity';
 import { InvoiceItem } from '../sales/entities/invoice-item.entity';
 import { User } from '../users/entities/user.entity';
@@ -138,6 +139,12 @@ export class InventoryService {
     const product = this.productRepository.create(createDto);
     const savedProduct = await this.productRepository.save(product);
 
+    if (createDto.taxIds?.length) {
+      const taxes = await this.productRepository.manager.findBy(Tax, { id: In(createDto.taxIds) });
+      savedProduct.taxes = taxes;
+      await this.productRepository.save(savedProduct);
+    }
+
     if (savedProduct.currentStock > 0) {
       const initialBatch = this.batchRepository.create({
         productId: savedProduct.id,
@@ -166,7 +173,7 @@ export class InventoryService {
       order: { [sortBy]: order },
       take: limit,
       skip,
-      relations: ['category'],
+      relations: ['category', 'taxes'],
     });
 
     return {
@@ -183,7 +190,7 @@ export class InventoryService {
   async findOneProduct(id: string): Promise<Product> {
     const product = await this.productRepository.findOne({
       where: { id },
-      relations: ['category'],
+      relations: ['category', 'taxes'],
     });
     if (!product) {
       throw new NotFoundException(`Producto con ID ${id} no encontrado`);
@@ -225,7 +232,16 @@ export class InventoryService {
         }
       }
 
-      const { adjustmentReason, ...otherUpdates } = updateDto;
+      const { adjustmentReason, taxIds, ...otherUpdates } = updateDto;
+
+      if (taxIds !== undefined) {
+        if (taxIds.length) {
+          const taxes = await productRepo.manager.findBy(Tax, { id: In(taxIds) });
+          product.taxes = taxes;
+        } else {
+          product.taxes = [];
+        }
+      }
 
       if (updateDto.currentStock !== undefined) {
         const oldStock = Number(product.currentStock) || 0;
@@ -287,7 +303,7 @@ export class InventoryService {
 
       const finalProduct = await productRepo.findOne({
         where: { id },
-        relations: ['category'],
+        relations: ['category', 'taxes'],
       });
       if (!finalProduct) {
         throw new NotFoundException(`Producto con ID ${id} no encontrado`);

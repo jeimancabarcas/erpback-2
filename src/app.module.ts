@@ -25,6 +25,10 @@ import { CreditNoteItem } from './modules/sales/entities/credit-note-item.entity
 import { DebitNoteItem } from './modules/sales/entities/debit-note-item.entity';
 import { FactusModule } from './modules/factus/factus.module';
 import { PdfGenerationModule } from './modules/pdf-generation/pdf-generation.module';
+import { SettingsModule } from './modules/settings/settings.module';
+import { Tax } from './modules/settings/entities/tax.entity';
+import { PaymentMethod } from './modules/settings/entities/payment-method.entity';
+import { PaymentType } from './modules/settings/entities/payment-type.entity';
 
 @Module({
   imports: [
@@ -57,6 +61,9 @@ import { PdfGenerationModule } from './modules/pdf-generation/pdf-generation.mod
           DebitNote,
           CreditNoteItem,
           DebitNoteItem,
+          Tax,
+          PaymentMethod,
+          PaymentType,
         ],
         synchronize: true, // Only for development
       }),
@@ -70,6 +77,7 @@ import { PdfGenerationModule } from './modules/pdf-generation/pdf-generation.mod
     SalesModule,
     FactusModule,
     PdfGenerationModule,
+    SettingsModule,
   ],
 })
 export class AppModule {}

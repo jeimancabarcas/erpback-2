@@ -6,8 +6,11 @@ import {
   UpdateDateColumn,
   ManyToOne,
   JoinColumn,
+  ManyToMany,
+  JoinTable,
 } from 'typeorm';
 import { InventoryCategory } from './inventory-category.entity';
+import { Tax } from '../../settings/entities/tax.entity';
 
 @Entity('products')
 export class Product {
@@ -41,6 +44,14 @@ export class Product {
 
   @Column({ name: 'category_id', nullable: true })
   categoryId: string;
+
+  @ManyToMany(() => Tax)
+  @JoinTable({
+    name: 'products_taxes',
+    joinColumn: { name: 'product_id', referencedColumnName: 'id' },
+    inverseJoinColumn: { name: 'tax_id', referencedColumnName: 'id' },
+  })
+  taxes: Tax[];
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
