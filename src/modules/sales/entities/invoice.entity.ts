@@ -5,6 +5,7 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   ManyToOne,
+  OneToOne,
   OneToMany,
   JoinColumn,
 } from 'typeorm';
@@ -12,6 +13,7 @@ import { Customer } from '../../customers/entities/customer.entity';
 import { InvoiceItem } from './invoice-item.entity';
 import { CreditNote } from './credit-note.entity';
 import { DebitNote } from './debit-note.entity';
+import { InvoiceElectronicEmission } from './invoice-electronic-emission.entity';
 
 export enum InvoiceStatus {
   DRAFT = 'DRAFT',
@@ -24,8 +26,11 @@ export class Invoice {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ unique: true })
-  invoiceNumber: string;
+  @Column({ name: 'sequential_number', type: 'int', generated: 'identity' })
+  sequentialNumber: number;
+
+  @Column({ name: 'invoice_number', length: 50, nullable: true })
+  invoiceNumber?: string;
 
   @Column({ type: 'timestamp' })
   date: Date;
@@ -56,8 +61,13 @@ export class Invoice {
   })
   status: InvoiceStatus;
 
-  @Column({ name: 'is_electronic', default: true })
+  @Column({ name: 'is_electronic', default: false })
   isElectronic: boolean;
+
+  @OneToOne(() => InvoiceElectronicEmission, (emission) => emission.invoice, {
+    nullable: true,
+  })
+  emission?: InvoiceElectronicEmission;
 
   @Column({ type: 'text', nullable: true })
   notes: string;

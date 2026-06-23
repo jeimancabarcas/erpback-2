@@ -4,6 +4,7 @@ import {
   IsOptional,
   IsString,
   IsNumber,
+  IsBoolean,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -44,4 +45,8 @@ export class CreateSalesNoteDto {
   @ValidateNested({ each: true })
   @Type(() => CreateSalesNoteItemDto)
   items?: CreateSalesNoteItemDto[];
+
+  @IsOptional()
+  @IsBoolean()
+  isElectronic?: boolean;
 }

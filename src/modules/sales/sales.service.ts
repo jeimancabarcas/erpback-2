@@ -9,6 +9,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, Between, Like } from 'typeorm';
 import { Invoice, InvoiceStatus } from './entities/invoice.entity';
 import { InvoiceItem } from './entities/invoice-item.entity';
+import { InvoiceElectronicEmission } from './entities/invoice-electronic-emission.entity';
 import { CreditNote } from './entities/credit-note.entity';
 import { DebitNote } from './entities/debit-note.entity';
 import { CreditNoteItem } from './entities/credit-note-item.entity';
@@ -34,6 +35,8 @@ export class SalesService {
     private readonly invoiceRepository: Repository<Invoice>,
     @InjectRepository(InvoiceItem)
     private readonly invoiceItemRepository: Repository<InvoiceItem>,
+    @InjectRepository(InvoiceElectronicEmission)
+    private readonly invoiceEmissionRepository: Repository<InvoiceElectronicEmission>,
     @InjectRepository(CreditNote)
     private readonly creditNoteRepository: Repository<CreditNote>,
     @InjectRepository(DebitNote)
@@ -80,7 +83,6 @@ export class SalesService {
       const factusItems: FactusItem[] = [];
 
       for (const item of items) {
-        // Cargar detalles del producto para obtener precio y detalles de Factus
         const product = await queryRunner.manager.findOne(Product, {
           where: { id: item.productId },
         });
@@ -90,14 +92,11 @@ export class SalesService {
           );
         }
 
-        // Obtener el precio unitario del producto si no es provisto por el front
         const unitPrice =
           item.unitPrice !== undefined
             ? Number(item.unitPrice)
             : Number(product.sellingPrice);
 
-        // Verificar stock y disminuirlo (usando el manager de la transacción)
-        // Ahora devuelve el costo total de lo consumido
         const totalItemCost = await this.inventoryService.consumeStock(
           item.productId,
           item.quantity,
@@ -118,8 +117,6 @@ export class SalesService {
           }),
         );
 
-        // Desglosar impuestos para Factus:
-        // El precio unitario enviado debe ser sin IVA (unitPrice / 1.19)
         const priceBeforeTax = Number((Number(unitPrice) / 1.19).toFixed(2));
         const itemSubtotal = priceBeforeTax * item.quantity;
         const itemTax = Number((itemSubtotal * 0.19).toFixed(2));
@@ -137,19 +134,12 @@ export class SalesService {
         });
       }
 
-      // 3. Generar número de factura y (si es electrónica) llamar Factus API
-      const count = await this.invoiceRepository.count();
-      const isElectronic = createDto.isElectronic !== false;
+      const isElectronic = createDto.isElectronic === true;
 
-      let invoiceNumber: string;
-
-      if (!isElectronic) {
-        const manualCount = await this.invoiceRepository.count({
-          where: { isElectronic: false },
-        });
-        invoiceNumber = `MAN-${(manualCount + 1).toString().padStart(8, '0')}`;
-      } else {
-        const referenceCode = `FAC-REF-${(count + 1).toString().padStart(4, '0')}-${Date.now()}`;
+      // 3. Para electrónicas, llamar Factus API primero
+      let factusResponse: any = null;
+      if (isElectronic) {
+        const referenceCode = `FAC-REF-${Date.now()}`;
 
         const factusPayload = {
           referenceCode,
@@ -164,17 +154,8 @@ export class SalesService {
           items: factusItems,
         };
 
-        invoiceNumber = `FAC-${(count + 1).toString().padStart(4, '0')}`;
         try {
-          const factusResponse =
-            await this.factusGateway.createInvoice(factusPayload);
-          if (
-            factusResponse &&
-            factusResponse.data &&
-            factusResponse.data.number
-          ) {
-            invoiceNumber = factusResponse.data.number; // e.g. SETP990003678
-          }
+          factusResponse = await this.factusGateway.createInvoice(factusPayload);
         } catch (error) {
           throw new BadRequestException(
             `Error al emitir Factura en Factus: ${error.message}`,
@@ -182,24 +163,155 @@ export class SalesService {
         }
       }
 
-      // 4. Crear la factura local
+      // 4. Crear la factura local (sin invoiceNumber inicial — se asigna tras obtener sequentialNumber)
       const invoice = this.invoiceRepository.create({
         ...invoiceData,
         date: invoiceData.date || new Date(),
-        invoiceNumber,
         totalAmount,
         status: InvoiceStatus.PAID,
-        isElectronic: createDto.isElectronic ?? true,
+        isElectronic: createDto.isElectronic ?? false,
         items: invoiceItems,
       });
-
       const savedInvoice = await queryRunner.manager.save(invoice);
+
+      // 5. Derivar invoiceNumber del sequentialNumber generado por la BD
+      const prefix = savedInvoice.isElectronic ? 'FAC' : 'MAN';
+      savedInvoice.invoiceNumber = `${prefix}-${String(savedInvoice.sequentialNumber).padStart(6, '0')}`;
+
+      // 6. Para electrónicas, crear la emisión
+      if (isElectronic && factusResponse?.data) {
+        const emission = this.invoiceEmissionRepository.create({
+          invoice: savedInvoice,
+          number: factusResponse.data.number,
+          cude: factusResponse.data.cude || factusResponse.data.cufe || undefined,
+          qrUrl: factusResponse.data.qrUrl || undefined,
+          publicUrl: factusResponse.data.publicUrl || undefined,
+          isValidated: factusResponse.data.isValidated ?? false,
+      validatedAt: factusResponse.data.validatedAt
+        ? (() => { const d = new Date(factusResponse.data.validatedAt); return isNaN(d.getTime()) ? undefined : d; })()
+        : undefined,
+          numberingRange: factusResponse.data.numberingRange || undefined,
+          items: factusResponse.data.items || undefined,
+          taxes: factusResponse.data.taxes || undefined,
+          totals: factusResponse.data.totals || undefined,
+          links: factusResponse.data.links || undefined,
+        });
+        savedInvoice.emission =
+          await queryRunner.manager.save(emission);
+      }
+
+      await queryRunner.manager.save(savedInvoice);
       await queryRunner.commitTransaction();
 
       return savedInvoice;
     } catch (error) {
       await queryRunner.rollbackTransaction();
-      throw new BadRequestException(error.message);
+      throw error instanceof BadRequestException || error instanceof NotFoundException
+        ? error
+        : new BadRequestException(error.message);
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  async emit(id: string): Promise<Invoice> {
+    const invoice = await this.invoiceRepository.findOne({
+      where: { id },
+      relations: ['customer', 'items', 'items.product', 'emission'],
+    });
+
+    if (!invoice) {
+      throw new NotFoundException(`Factura con ID ${id} no encontrada`);
+    }
+
+    if (invoice.isElectronic) {
+      throw new BadRequestException(
+        'La factura ya es electrónica',
+      );
+    }
+
+    if (invoice.emission) {
+      throw new BadRequestException(
+        'La factura ya tiene una emisión registrada',
+      );
+    }
+
+    // Build Factus payload from existing invoice data
+    let factusTotalAmount = 0;
+    const factusItems: FactusItem[] = [];
+
+    for (const item of invoice.items) {
+      const unitPrice = Number(item.unitPrice);
+      const priceBeforeTax = Number((unitPrice / 1.19).toFixed(2));
+      const itemSubtotal = priceBeforeTax * Number(item.quantity);
+      const itemTax = Number((itemSubtotal * 0.19).toFixed(2));
+      factusTotalAmount += itemSubtotal + itemTax;
+
+      factusItems.push({
+        codeReference: item.product?.sku || item.productId,
+        name: item.product?.name || 'Producto',
+        quantity: Number(item.quantity),
+        discountRate: 0,
+        price: priceBeforeTax,
+        unitMeasureCode: '94',
+        standardCode: '999',
+        taxes: [{ code: '01', rate: '19.00' }],
+      });
+    }
+
+    const referenceCode = `FAC-REF-${invoice.invoiceNumber || invoice.id}-${Date.now()}`;
+
+    const factusPayload = {
+      referenceCode,
+      paymentDetails: [
+        {
+          paymentForm: '1',
+          paymentMethodCode: '10',
+          amount: factusTotalAmount.toFixed(2),
+        },
+      ],
+      customer: this.mapCustomerToFactus(invoice.customer),
+      items: factusItems,
+    };
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      const factusResponse =
+        await this.factusGateway.createInvoice(factusPayload);
+
+      // Create InvoiceElectronicEmission from full Factus response
+      const emission = this.invoiceEmissionRepository.create({
+        invoice,
+        number: factusResponse.data.number,
+        cude: factusResponse.data.cude || factusResponse.data.cufe || undefined,
+        qrUrl: factusResponse.data.qrUrl || undefined,
+        publicUrl: factusResponse.data.publicUrl || undefined,
+        isValidated: factusResponse.data.isValidated ?? false,
+      validatedAt: factusResponse.data.validatedAt
+        ? (() => { const d = new Date(factusResponse.data.validatedAt); return isNaN(d.getTime()) ? undefined : d; })()
+        : undefined,
+        numberingRange: factusResponse.data.numberingRange || undefined,
+        items: factusResponse.data.items || undefined,
+        taxes: factusResponse.data.taxes || undefined,
+        totals: factusResponse.data.totals || undefined,
+        links: factusResponse.data.links || undefined,
+      });
+
+      invoice.isElectronic = true;
+      invoice.emission = await queryRunner.manager.save(emission);
+      await queryRunner.manager.save(invoice);
+
+      await queryRunner.commitTransaction();
+
+      return invoice;
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw new BadRequestException(
+        `Error al emitir Factura en Factus: ${error.message}`,
+      );
     } finally {
       await queryRunner.release();
     }
@@ -235,6 +347,7 @@ export class SalesService {
         'items.product',
         'creditNotes',
         'debitNotes',
+        'emission',
       ],
     });
 
@@ -267,7 +380,7 @@ export class SalesService {
   async findOne(id: string): Promise<Invoice> {
     const invoice = await this.invoiceRepository.findOne({
       where: { id },
-      relations: ['customer', 'items', 'items.product'],
+      relations: ['customer', 'items', 'items.product', 'emission'],
     });
 
     if (!invoice) {
@@ -374,6 +487,22 @@ export class SalesService {
       phone: customer.phone || '1234567890',
       municipalityCode: '68679', // Sandbox default DIAN municipality
     };
+  }
+
+  /**
+   * Guard: rejects electronic adjustment notes for manual invoices.
+   * Called immediately after isElectronicNote resolution in both
+   * createCreditNote() and createDebitNote().
+   */
+  private validateNoteElectronicStatus(
+    isElectronicNote: boolean,
+    invoice: Invoice,
+  ): void {
+    if (isElectronicNote && !invoice.isElectronic) {
+      throw new BadRequestException(
+        'Las notas de ajuste electrónicas solo pueden emitirse para facturas electrónicas',
+      );
+    }
   }
 
   private async getNextManualNoteNumber(
@@ -627,8 +756,13 @@ export class SalesService {
       );
     }
 
-    // --- Manual invoice path ---
-    if (!invoice.isElectronic) {
+    // --- Determinar si la nota es electrónica ---
+    const isElectronicNote = dto.isElectronic ?? invoice.isElectronic;
+
+    // Guard: reject electronic note for manual invoice
+    this.validateNoteElectronicStatus(isElectronicNote, invoice);
+
+    if (!isElectronicNote) {
       return this.createCreditNoteLocal(invoice, dto);
     }
 
@@ -770,8 +904,13 @@ export class SalesService {
       throw new NotFoundException(`Factura con ID ${invoiceId} no encontrada`);
     }
 
-    // --- Manual invoice path ---
-    if (!invoice.isElectronic) {
+    // --- Determinar si la nota es electrónica ---
+    const isElectronicNote = dto.isElectronic ?? invoice.isElectronic;
+
+    // Guard: reject electronic note for manual invoice
+    this.validateNoteElectronicStatus(isElectronicNote, invoice);
+
+    if (!isElectronicNote) {
       return this.createDebitNoteLocal(invoice, dto);
     }
 
@@ -972,6 +1111,7 @@ export class SalesService {
   ): Promise<{ pdfBase64Encoded: string; fileName: string }> {
     const invoice = await this.invoiceRepository.findOne({
       where: { id },
+      relations: ['emission'],
     });
 
     if (!invoice) {
@@ -984,13 +1124,14 @@ export class SalesService {
       );
     }
 
-    if (!invoice.invoiceNumber) {
+    if (!invoice.emission?.number) {
       throw new BadRequestException(
-        'La factura no tiene un número oficial asignado',
+        'La factura no tiene un número de emisión oficial asignado',
       );
     }
 
-    return this.factusGateway.downloadInvoicePdf(invoice.invoiceNumber);
+    const emissionNumber = invoice.emission.number;
+    return this.factusGateway.downloadInvoicePdf(emissionNumber);
   }
 
   async downloadAdjustmentNotePdf(

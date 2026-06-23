@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Invoice } from './entities/invoice.entity';
 import { InvoiceItem } from './entities/invoice-item.entity';
+import { InvoiceElectronicEmission } from './entities/invoice-electronic-emission.entity';
 import { CreditNote } from './entities/credit-note.entity';
 import { DebitNote } from './entities/debit-note.entity';
 import { CreditNoteItem } from './entities/credit-note-item.entity';
@@ -17,6 +18,7 @@ import { PdfGenerationModule } from '../pdf-generation/pdf-generation.module';
     TypeOrmModule.forFeature([
       Invoice,
       InvoiceItem,
+      InvoiceElectronicEmission,
       CreditNote,
       DebitNote,
       CreditNoteItem,

@@ -18,6 +18,7 @@ import { Customer } from './modules/customers/entities/customer.entity';
 import { SalesModule } from './modules/sales/sales.module';
 import { Invoice } from './modules/sales/entities/invoice.entity';
 import { InvoiceItem } from './modules/sales/entities/invoice-item.entity';
+import { InvoiceElectronicEmission } from './modules/sales/entities/invoice-electronic-emission.entity';
 import { CreditNote } from './modules/sales/entities/credit-note.entity';
 import { DebitNote } from './modules/sales/entities/debit-note.entity';
 import { CreditNoteItem } from './modules/sales/entities/credit-note-item.entity';
@@ -51,6 +52,7 @@ import { PdfGenerationModule } from './modules/pdf-generation/pdf-generation.mod
           Customer,
           Invoice,
           InvoiceItem,
+          InvoiceElectronicEmission,
           CreditNote,
           DebitNote,
           CreditNoteItem,

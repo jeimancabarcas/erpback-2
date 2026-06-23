@@ -159,7 +159,7 @@ export class InventoryService {
     const { page = 1, limit = 10, sortBy = 'name', order = 'ASC' } = queryDto;
     const skip = (page - 1) * limit;
 
-    const where = buildWhere(queryDto, ['name', 'sku', 'categoryId']);
+    const where = buildWhere(queryDto, ['name', 'sku'], ['categoryId']);
 
     const [data, total] = await this.productRepository.findAndCount({
       where,

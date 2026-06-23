@@ -44,6 +44,11 @@ export class SalesController {
     return this.salesService.findOne(id);
   }
 
+  @Post('invoices/:id/emit')
+  emit(@Param('id', ParseUUIDPipe) id: string) {
+    return this.salesService.emit(id);
+  }
+
   @Post('invoices/:id/credit-note')
   createCreditNote(
     @Param('id', ParseUUIDPipe) id: string,
