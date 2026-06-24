@@ -12,7 +12,9 @@ export class PaymentTypesService {
     private readonly repo: Repository<PaymentType>,
   ) {}
 
-  async findAll(query: QueryPaymentTypeDto): Promise<PaginatedResult<PaymentType>> {
+  async findAll(
+    query: QueryPaymentTypeDto,
+  ): Promise<PaginatedResult<PaymentType>> {
     const { page = 1, limit = 10 } = query;
     const skip = (page - 1) * limit;
 

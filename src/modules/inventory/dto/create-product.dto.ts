@@ -33,7 +33,10 @@ export class CreateProductDto {
   categoryId?: string;
 
   @IsOptional()
-  @IsUUID('all', { each: true, message: 'Cada ID de impuesto debe ser un UUID válido' })
+  @IsUUID('all', {
+    each: true,
+    message: 'Cada ID de impuesto debe ser un UUID válido',
+  })
   taxIds?: string[];
 
   @IsOptional()

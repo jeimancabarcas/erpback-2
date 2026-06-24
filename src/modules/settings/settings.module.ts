@@ -14,8 +14,18 @@ import { SeedService } from './services/seed.service';
 
 @Module({
   imports: [TypeOrmModule.forFeature([Tax, PaymentMethod, PaymentType])],
-  controllers: [TaxesController, PaymentMethodsController, PaymentTypesController, SeedController],
-  providers: [TaxesService, PaymentMethodsService, PaymentTypesService, SeedService],
+  controllers: [
+    TaxesController,
+    PaymentMethodsController,
+    PaymentTypesController,
+    SeedController,
+  ],
+  providers: [
+    TaxesService,
+    PaymentMethodsService,
+    PaymentTypesService,
+    SeedService,
+  ],
   exports: [TaxesService, PaymentMethodsService, PaymentTypesService],
 })
 export class SettingsModule {}

@@ -11,6 +11,7 @@ import { Product } from './entities/product.entity';
 import { Tax } from '../settings/entities/tax.entity';
 import { InventoryBatch } from './entities/inventory-batch.entity';
 import { InvoiceItem } from '../sales/entities/invoice-item.entity';
+import { CreditNoteItem } from '../sales/entities/credit-note-item.entity';
 import { User } from '../users/entities/user.entity';
 import { CreateInventoryCategoryDto } from './dto/create-inventory-category.dto';
 import { UpdateInventoryCategoryDto } from './dto/update-inventory-category.dto';
@@ -140,7 +141,9 @@ export class InventoryService {
     const savedProduct = await this.productRepository.save(product);
 
     if (createDto.taxIds?.length) {
-      const taxes = await this.productRepository.manager.findBy(Tax, { id: In(createDto.taxIds) });
+      const taxes = await this.productRepository.manager.findBy(Tax, {
+        id: In(createDto.taxIds),
+      });
       savedProduct.taxes = taxes;
       await this.productRepository.save(savedProduct);
     }
@@ -236,7 +239,9 @@ export class InventoryService {
 
       if (taxIds !== undefined) {
         if (taxIds.length) {
-          const taxes = await productRepo.manager.findBy(Tax, { id: In(taxIds) });
+          const taxes = await productRepo.manager.findBy(Tax, {
+            id: In(taxIds),
+          });
           product.taxes = taxes;
         } else {
           product.taxes = [];
@@ -398,6 +403,71 @@ export class InventoryService {
     return totalCost;
   }
 
+  /**
+   * Restores stock to a product by reversing consumeStock in LIFO order.
+   *
+   * Finds batches that have been consumed (remainingQuantity < initialQuantity),
+   * ordered by most recent consumption first (createdAt DESC), and restores
+   * up to `initialQuantity` per batch.
+   *
+   * @param productId - The product to restore stock to
+   * @param quantity - The total quantity to restore
+   * @param manager - Optional EntityManager for transactional participation
+   * @returns The total restored cost (sum of restored qty * purchasePrice per batch)
+   */
+  async restoreStock(
+    productId: string,
+    quantity: number,
+    manager?: EntityManager,
+  ): Promise<number> {
+    const productRepo = manager
+      ? manager.getRepository(Product)
+      : this.productRepository;
+    const batchRepo = manager
+      ? manager.getRepository(InventoryBatch)
+      : this.batchRepository;
+
+    const product = await productRepo.findOne({ where: { id: productId } });
+    if (!product) throw new NotFoundException(`Producto no encontrado`);
+
+    let remainingToRestore = quantity;
+    let totalCost = 0;
+
+    // Find consumed batches (remaining < initial) ordered by most recent consumption first (LIFO)
+    const consumedBatches = await batchRepo.find({
+      where: { productId },
+      order: { createdAt: 'DESC' },
+    });
+
+    // Filter to only batches that have been consumed (remaining < initial)
+    const batchesToRestore = consumedBatches.filter(
+      (b) => Number(b.remainingQuantity) < Number(b.initialQuantity),
+    );
+
+    for (const batch of batchesToRestore) {
+      if (remainingToRestore <= 0) break;
+
+      const maxRestore =
+        Number(batch.initialQuantity) - Number(batch.remainingQuantity);
+      const toRestore = Math.min(maxRestore, remainingToRestore);
+
+      batch.remainingQuantity = Number(batch.remainingQuantity) + toRestore;
+      remainingToRestore -= toRestore;
+      totalCost += toRestore * Number(batch.purchasePrice);
+
+      await batchRepo.save(batch);
+    }
+
+    const actuallyRestored = quantity - remainingToRestore;
+    product.currentStock = Number(product.currentStock) + actuallyRestored;
+    await productRepo.save(product);
+
+    // Recalculate average price after restoring batches
+    await this.recalculateAveragePrice(productId, manager);
+
+    return totalCost;
+  }
+
   private async recalculateAveragePrice(
     productId: string,
     manager?: EntityManager,
@@ -486,9 +556,7 @@ export class InventoryService {
 
     const outMovements = invoiceItems.map((item) => ({
       id: `OUT-${item.id.substring(0, 8).toUpperCase()}`,
-      date: item.invoice?.date
-        ? new Date(item.invoice.date)
-        : new Date(),
+      date: item.invoice?.date ? new Date(item.invoice.date) : new Date(),
       type: 'Out' as const,
       product: item.product ? item.product.name : 'Producto Eliminado',
       quantity: item.quantity,
@@ -498,10 +566,32 @@ export class InventoryService {
       operatorId: null,
     }));
 
-    // 3. Unificar
-    let movements = [...batchMovements, ...outMovements];
+    // 3. Obtener entradas (In) desde notas crédito con devolución (restoreStock)
+    const creditNoteItemRepo =
+      this.productRepository.manager.getRepository(CreditNoteItem);
+    const creditNoteItems = await creditNoteItemRepo.find({
+      where: { restored: true },
+      relations: ['product', 'creditNote'],
+    });
 
-    // 4. Filtrar
+    const returnMovements = creditNoteItems.map((item) => ({
+      id: `RET-${item.id.substring(0, 8).toUpperCase()}`,
+      date: item.creditNote?.createdAt
+        ? new Date(item.creditNote.createdAt)
+        : new Date(),
+      type: 'In' as const,
+      product: item.product ? item.product.name : 'Producto Eliminado',
+      quantity: item.quantity,
+      origin: 'Cliente Final (Devolución)',
+      destination: 'Almacén Principal',
+      operator: 'Sistema',
+      operatorId: null,
+    }));
+
+    // 4. Unificar
+    let movements = [...batchMovements, ...outMovements, ...returnMovements];
+
+    // 5. Filtrar
     if (type) {
       movements = movements.filter((m) => m.type === type);
     }
@@ -509,16 +599,15 @@ export class InventoryService {
       movements = movements.filter((m) => m.operatorId === userId);
     }
 
-    // 5. Ordenar
+    // 6. Ordenar
     movements.sort((a, b) => {
       const aVal = a[sortBy];
       const bVal = b[sortBy];
-      const cmp =
-        aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
+      const cmp = aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
       return order === 'DESC' ? -cmp : cmp;
     });
 
-    // 6. Paginar
+    // 7. Paginar
     const total = movements.length;
     const skip = (page - 1) * limit;
     const data = movements.slice(skip, skip + limit);
@@ -527,9 +616,7 @@ export class InventoryService {
     const formatted = data.map((m) => ({
       ...m,
       date:
-        m.date instanceof Date
-          ? m.date.toISOString().split('T')[0]
-          : m.date,
+        m.date instanceof Date ? m.date.toISOString().split('T')[0] : m.date,
     }));
 
     return {
@@ -571,9 +658,7 @@ export class InventoryService {
       totalStock,
       productCount: productIds.size,
       averageCostPerUnit:
-        totalStock > 0
-          ? Number((totalValue / totalStock).toFixed(2))
-          : 0,
+        totalStock > 0 ? Number((totalValue / totalStock).toFixed(2)) : 0,
     };
   }
 }

@@ -54,10 +54,7 @@ describe('SeedController', () => {
 
   describe('JwtAuthGuard', () => {
     it('should have JwtAuthGuard applied at controller level', async () => {
-      const guards = Reflect.getMetadata(
-        '__guards__',
-        SeedController,
-      );
+      const guards = Reflect.getMetadata('__guards__', SeedController);
       expect(guards).toBeDefined();
       expect(guards[0]).toBe(JwtAuthGuard);
     });
@@ -67,10 +64,7 @@ describe('SeedController', () => {
         '__guards__',
         SeedController.prototype.seed,
       );
-      const classGuards = Reflect.getMetadata(
-        '__guards__',
-        SeedController,
-      );
+      const classGuards = Reflect.getMetadata('__guards__', SeedController);
 
       // The guard is applied at class level (not method level)
       expect(classGuards).toBeDefined();

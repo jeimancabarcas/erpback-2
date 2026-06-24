@@ -3,10 +3,13 @@ import {
   PrimaryGeneratedColumn,
   Column,
   ManyToOne,
+  OneToMany,
   JoinColumn,
   Index,
 } from 'typeorm';
 import { CreditNote } from './credit-note.entity';
+import { CreditNoteItemTax } from './credit-note-item-tax.entity';
+import { Product } from '../../inventory/entities/product.entity';
 
 @Entity('credit_note_items')
 @Index(['creditNoteId'])
@@ -35,4 +38,31 @@ export class CreditNoteItem {
 
   @Column({ type: 'decimal', precision: 12, scale: 2 })
   subtotal: number;
+
+  @Column({ name: 'product_id', nullable: true })
+  productId: string;
+
+  @Column({
+    name: 'purchase_price',
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    nullable: true,
+  })
+  purchasePrice: number;
+
+  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
+  taxAmount: number;
+
+  @Column({ default: false })
+  restored: boolean;
+
+  @ManyToOne(() => Product, { onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'product_id' })
+  product: Product;
+
+  @OneToMany(() => CreditNoteItemTax, (tax) => tax.creditNoteItem, {
+    cascade: true,
+  })
+  noteItemTaxes: CreditNoteItemTax[];
 }

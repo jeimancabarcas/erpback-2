@@ -6,7 +6,7 @@ import {
   Inject,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, Between, Like } from 'typeorm';
+import { Repository, DataSource, Between, Like, EntityManager } from 'typeorm';
 import { Invoice, InvoiceStatus } from './entities/invoice.entity';
 import { InvoiceItem } from './entities/invoice-item.entity';
 import { InvoiceElectronicEmission } from './entities/invoice-electronic-emission.entity';
@@ -14,6 +14,8 @@ import { CreditNote } from './entities/credit-note.entity';
 import { DebitNote } from './entities/debit-note.entity';
 import { CreditNoteItem } from './entities/credit-note-item.entity';
 import { DebitNoteItem } from './entities/debit-note-item.entity';
+import { CreditNoteItemTax } from './entities/credit-note-item-tax.entity';
+import { DebitNoteItemTax } from './entities/debit-note-item-tax.entity';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { QueryInvoicesDto } from './dto/query-invoices.dto';
 import { CreateSalesNoteDto } from './dto/create-sales-note.dto';
@@ -29,6 +31,17 @@ import {
 import { InvoiceItemTax } from './entities/invoice-item-tax.entity';
 import { Customer } from '../customers/entities/customer.entity';
 import { Product } from '../inventory/entities/product.entity';
+import {
+  ScenarioHandler,
+  ScenarioParams,
+  ScenarioResult,
+} from './helpers/scenario-handler.interface';
+import { ScenarioAHandler } from './helpers/scenario-a';
+import { ScenarioBHandler } from './helpers/scenario-b';
+import { ScenarioCHandler } from './helpers/scenario-c';
+import { ScenarioDHandler } from './helpers/scenario-d';
+import { ScenarioEHandler } from './helpers/scenario-e';
+import { ScenarioFHandler } from './helpers/scenario-f';
 
 @Injectable()
 export class SalesService {
@@ -47,12 +60,54 @@ export class SalesService {
     private readonly creditNoteItemRepository: Repository<CreditNoteItem>,
     @InjectRepository(DebitNoteItem)
     private readonly debitNoteItemRepository: Repository<DebitNoteItem>,
+    @InjectRepository(CreditNoteItemTax)
+    private readonly creditNoteItemTaxRepository: Repository<CreditNoteItemTax>,
+    @InjectRepository(DebitNoteItemTax)
+    private readonly debitNoteItemTaxRepository: Repository<DebitNoteItemTax>,
     @Inject('IFactusInvoicingGateway')
     private readonly factusGateway: any,
     private readonly inventoryService: InventoryService,
     private readonly pdfGenerationService: PdfGenerationService,
     private readonly dataSource: DataSource,
-  ) {}
+    // Scenario handlers (injected for DI)
+    private readonly scenarioAHandler: ScenarioAHandler,
+    private readonly scenarioBHandler: ScenarioBHandler,
+    private readonly scenarioCHandler: ScenarioCHandler,
+    private readonly scenarioDHandler: ScenarioDHandler,
+    private readonly scenarioEHandler: ScenarioEHandler,
+    private readonly scenarioFHandler: ScenarioFHandler,
+  ) {
+    this.buildScenarioMaps();
+  }
+
+  private creditScenarioMap: Record<string, ScenarioHandler> = {};
+  private debitScenarioMap: Record<string, ScenarioHandler> = {};
+
+  /**
+   * Builds scenario handler lookup maps.
+   * Credit note scenarios: codes 1-5 (A-D)
+   *   - '1' / '5' → ScenarioA (partial return)
+   *   - '3'       → ScenarioB (discount)
+   *   - '4'       → ScenarioC (price correction / overcharge)
+   *   - '2'       → ScenarioD (total annulment)
+   * Debit note scenarios: codes 1-4 (E-F)
+   *   - '1'       → ScenarioE (financial interest)
+   *   - '2','3','4' → ScenarioF (undercharge correction)
+   */
+  private buildScenarioMaps(): void {
+    // Credit note handler map
+    this.creditScenarioMap['1'] = this.scenarioAHandler;
+    this.creditScenarioMap['5'] = this.scenarioAHandler;
+    this.creditScenarioMap['3'] = this.scenarioBHandler;
+    this.creditScenarioMap['4'] = this.scenarioCHandler;
+    this.creditScenarioMap['2'] = this.scenarioDHandler;
+
+    // Debit note handler map
+    this.debitScenarioMap['1'] = this.scenarioEHandler;
+    this.debitScenarioMap['2'] = this.scenarioFHandler;
+    this.debitScenarioMap['3'] = this.scenarioFHandler;
+    this.debitScenarioMap['4'] = this.scenarioFHandler;
+  }
 
   async create(createDto: CreateInvoiceDto): Promise<Invoice> {
     const { items, ...invoiceData } = createDto;
@@ -129,7 +184,7 @@ export class SalesService {
 
         for (const tax of taxes) {
           const taxAmt = Number(
-            (priceBeforeTax * Number(tax.percentage) / 100).toFixed(2),
+            ((priceBeforeTax * Number(tax.percentage)) / 100).toFixed(2),
           );
           itemTaxAmount += taxAmt;
           invoiceItemTaxes.push({
@@ -163,9 +218,9 @@ export class SalesService {
           }),
         );
 
-          allItemsTaxData.push(invoiceItemTaxes);
+        allItemsTaxData.push(invoiceItemTaxes);
 
-          factusItems.push({
+        factusItems.push({
           codeReference: product.sku || product.id,
           name: product.name,
           quantity: item.quantity,
@@ -196,7 +251,8 @@ export class SalesService {
         };
 
         try {
-          factusResponse = await this.factusGateway.createInvoice(factusPayload);
+          factusResponse =
+            await this.factusGateway.createInvoice(factusPayload);
         } catch (error) {
           throw new BadRequestException(
             `Error al emitir Factura en Factus: ${error.message}`,
@@ -242,21 +298,24 @@ export class SalesService {
         const emission = this.invoiceEmissionRepository.create({
           invoice: savedInvoice,
           number: factusResponse.data.number,
-          cude: factusResponse.data.cude || factusResponse.data.cufe || undefined,
+          cude:
+            factusResponse.data.cude || factusResponse.data.cufe || undefined,
           qrUrl: factusResponse.data.qrUrl || undefined,
           publicUrl: factusResponse.data.publicUrl || undefined,
           isValidated: factusResponse.data.isValidated ?? false,
-      validatedAt: factusResponse.data.validatedAt
-        ? (() => { const d = new Date(factusResponse.data.validatedAt); return isNaN(d.getTime()) ? undefined : d; })()
-        : undefined,
+          validatedAt: factusResponse.data.validatedAt
+            ? (() => {
+                const d = new Date(factusResponse.data.validatedAt);
+                return isNaN(d.getTime()) ? undefined : d;
+              })()
+            : undefined,
           numberingRange: factusResponse.data.numberingRange || undefined,
           items: factusResponse.data.items || undefined,
           taxes: factusResponse.data.taxes || undefined,
           totals: factusResponse.data.totals || undefined,
           links: factusResponse.data.links || undefined,
         });
-        savedInvoice.emission =
-          await queryRunner.manager.save(emission);
+        savedInvoice.emission = await queryRunner.manager.save(emission);
       }
 
       await queryRunner.manager.save(savedInvoice);
@@ -265,7 +324,8 @@ export class SalesService {
       return savedInvoice;
     } catch (error) {
       await queryRunner.rollbackTransaction();
-      throw error instanceof BadRequestException || error instanceof NotFoundException
+      throw error instanceof BadRequestException ||
+        error instanceof NotFoundException
         ? error
         : new BadRequestException(error.message);
     } finally {
@@ -290,9 +350,7 @@ export class SalesService {
     }
 
     if (invoice.isElectronic) {
-      throw new BadRequestException(
-        'La factura ya es electrónica',
-      );
+      throw new BadRequestException('La factura ya es electrónica');
     }
 
     if (invoice.emission) {
@@ -323,7 +381,7 @@ export class SalesService {
 
       for (const tax of taxes) {
         const taxAmt = Number(
-          (priceBeforeTax * Number(tax.percentage) / 100).toFixed(2),
+          ((priceBeforeTax * Number(tax.percentage)) / 100).toFixed(2),
         );
         itemTaxTotal += taxAmt * Number(item.quantity);
         factusTaxes.push({
@@ -378,9 +436,12 @@ export class SalesService {
         qrUrl: factusResponse.data.qrUrl || undefined,
         publicUrl: factusResponse.data.publicUrl || undefined,
         isValidated: factusResponse.data.isValidated ?? false,
-      validatedAt: factusResponse.data.validatedAt
-        ? (() => { const d = new Date(factusResponse.data.validatedAt); return isNaN(d.getTime()) ? undefined : d; })()
-        : undefined,
+        validatedAt: factusResponse.data.validatedAt
+          ? (() => {
+              const d = new Date(factusResponse.data.validatedAt);
+              return isNaN(d.getTime()) ? undefined : d;
+            })()
+          : undefined,
         numberingRange: factusResponse.data.numberingRange || undefined,
         items: factusResponse.data.items || undefined,
         taxes: factusResponse.data.taxes || undefined,
@@ -399,7 +460,8 @@ export class SalesService {
 
         const unitPrice = Number(item.unitPrice);
         const totalTaxRate = taxes.reduce(
-          (sum, t) => sum + Number(t.percentage), 0,
+          (sum, t) => sum + Number(t.percentage),
+          0,
         );
         const priceBeforeTax =
           totalTaxRate > 0
@@ -409,7 +471,7 @@ export class SalesService {
         let itemTaxAmount = 0;
         for (const tax of taxes) {
           const taxAmt = Number(
-            (priceBeforeTax * Number(tax.percentage) / 100).toFixed(2),
+            ((priceBeforeTax * Number(tax.percentage)) / 100).toFixed(2),
           );
           itemTaxAmount += taxAmt;
           await queryRunner.manager.save(InvoiceItemTax, {
@@ -648,106 +710,236 @@ export class SalesService {
     return `${prefix}-${invoice.invoiceNumber}-${seq}`;
   }
 
-  private async createCreditNoteLocal(
+  /**
+   * Validates that the new credit note does not exceed the invoice cumulative limits.
+   *
+   * Amount check (ALL scenarios): existing credit note amounts + new note amount
+   * must not exceed invoice.totalAmount.
+   *
+   * Per-product quantity check (scenarios A/D only — codes '1','5','2'):
+   * existing credit note item quantities per productId + new note quantity
+   * must not exceed the original invoice item quantity.
+   */
+  private async validateCumulativeLimits(
     invoice: Invoice,
     dto: CreateSalesNoteDto,
+    manager: EntityManager,
+  ): Promise<void> {
+    // --- Amount check (all scenarios) ---
+    const amountResult = await manager
+      .createQueryBuilder(CreditNote, 'cn')
+      .select('COALESCE(SUM(cn.amount), 0)', 'total')
+      .where('cn.invoiceId = :invoiceId', { invoiceId: invoice.id })
+      .getRawOne<{ total: string }>();
+
+    const existingAmount = Number(amountResult?.total ?? 0);
+
+    // Scenario D (code '2' — total annulment) is not allowed if any credit notes already exist
+    if (dto.correctionConceptCode === '2' && existingAmount > 0) {
+      throw new BadRequestException(
+        'No se puede emitir una anulación total cuando ya existen notas de crédito parciales para esta factura',
+      );
+    }
+
+    // Compute new note amount from DTO items matched to invoice items
+    let newNoteAmount = 0;
+    for (const dtoItem of dto.items || []) {
+      const invoiceItem = invoice.items.find(
+        (ii) =>
+          ii.productId === dtoItem.productId ||
+          ii.product?.sku === dtoItem.codeReference,
+      );
+      if (!invoiceItem) continue;
+      const unitPrice = dtoItem.price ?? Number(invoiceItem.unitPrice);
+      newNoteAmount += dtoItem.quantity * unitPrice;
+    }
+
+    if (existingAmount + newNoteAmount > Number(invoice.totalAmount)) {
+      throw new BadRequestException(
+        `El monto acumulado de notas de crédito (${existingAmount + newNoteAmount}) supera el total de la factura (${invoice.totalAmount})`,
+      );
+    }
+
+    // --- Per-product quantity check (A/D only: codes '1','5','2') ---
+    if (
+      dto.correctionConceptCode &&
+      ['1', '5', '2'].includes(dto.correctionConceptCode)
+    ) {
+      const qtyResults = await manager
+        .createQueryBuilder(CreditNoteItem, 'cni')
+        .select('cni.productId', 'productId')
+        .addSelect('COALESCE(SUM(cni.quantity), 0)', 'totalQty')
+        .innerJoin(CreditNote, 'cn', 'cn.id = cni.creditNoteId')
+        .where('cn.invoiceId = :invoiceId', { invoiceId: invoice.id })
+        .andWhere('cni.productId IS NOT NULL')
+        .groupBy('cni.productId')
+        .getRawMany<{ productId: string; totalQty: string }>();
+
+      for (const dtoItem of dto.items || []) {
+        if (!dtoItem.productId) continue;
+
+        const existingQtyResult = qtyResults.find(
+          (q) => q.productId === dtoItem.productId,
+        );
+        const existingQty = existingQtyResult
+          ? Number(existingQtyResult.totalQty)
+          : 0;
+
+        const invoiceItem = invoice.items.find(
+          (ii) =>
+            ii.productId === dtoItem.productId ||
+            ii.product?.sku === dtoItem.codeReference,
+        );
+        if (!invoiceItem) continue;
+
+        if (existingQty + dtoItem.quantity > invoiceItem.quantity) {
+          throw new BadRequestException(
+            `La cantidad acumulada del producto ${dtoItem.productId} (${existingQty + dtoItem.quantity}) supera la cantidad facturada (${invoiceItem.quantity})`,
+          );
+        }
+      }
+    }
+  }
+
+  /**
+   * Processes a credit note using the appropriate scenario handler.
+   * Shared by both manual and electronic paths.
+   */
+  private async processCreditNoteWithHandler(
+    invoice: Invoice,
+    dto: CreateSalesNoteDto,
+    handler: ScenarioHandler,
+    isElectronic: boolean,
   ): Promise<CreditNote> {
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
     try {
-      const noteNumber = await this.getNextManualNoteNumber(
-        queryRunner,
+      // Validate cumulative limits before executing handler
+      await this.validateCumulativeLimits(invoice, dto, queryRunner.manager);
+
+      // Execute the scenario handler
+      const params: ScenarioParams = {
         invoice,
-        'NC-MAN',
-      );
+        dto,
+        queryRunner: queryRunner.manager,
+        factusGateway: isElectronic ? this.factusGateway : undefined,
+      };
+      const result: ScenarioResult = await handler.execute(params);
 
-      let totalAmount = 0;
-      const noteItems: Partial<CreditNoteItem>[] = [];
-
-      if (dto.items && dto.items.length > 0) {
-        for (const itemDto of dto.items) {
-          const matchingInvoiceItem = invoice.items.find(
-            (ii) =>
-              ii.product?.sku === itemDto.codeReference ||
-              ii.productId === itemDto.codeReference,
-          );
-
-          if (!matchingInvoiceItem) {
-            throw new BadRequestException(
-              `El ítem con código ${itemDto.codeReference} no pertenece a esta factura`,
-            );
-          }
-
-          if (itemDto.quantity > matchingInvoiceItem.quantity) {
-            throw new BadRequestException(
-              `La cantidad a acreditar (${itemDto.quantity}) supera la cantidad facturada (${matchingInvoiceItem.quantity})`,
-            );
-          }
-
-          const price =
-            itemDto.price !== undefined
-              ? Number(itemDto.price)
-              : Number(matchingInvoiceItem.unitPrice);
-
-          const subtotal = itemDto.quantity * price;
-          totalAmount += subtotal;
-
-          noteItems.push({
-            creditNoteId: undefined,
-            codeReference: itemDto.codeReference,
-            name: matchingInvoiceItem.product?.name || 'Producto',
-            quantity: itemDto.quantity,
-            unitPrice: price,
-            subtotal,
-          });
-        }
-      } else {
-        totalAmount = Number(invoice.totalAmount);
-        for (const item of invoice.items) {
-          const subtotal = Number(item.quantity) * Number(item.unitPrice);
-          noteItems.push({
-            creditNoteId: undefined,
-            codeReference: item.product?.sku || item.productId,
-            name: item.product?.name || 'Producto',
-            quantity: Number(item.quantity),
-            unitPrice: Number(item.unitPrice),
-            subtotal,
-          });
-        }
-      }
-
+      let noteNumber: string | null = null;
+      let cude: string | null = null;
+      let qrUrl: string | null = null;
+      let publicUrl: string | null = null;
       const referenceCode = `NC-${invoice.invoiceNumber}-${Date.now()}`;
 
+      if (isElectronic) {
+        // --- Electronic path: build Factus payload and call gateway ---
+        const factusItems = result.factusItems || [];
+
+        const factusPayload = {
+          referenceCode,
+          correctionConceptCode: dto.correctionConceptCode,
+          billNumber: dto.billNumber || invoice.invoiceNumber,
+          numberingRangeId: dto.numberingRangeId,
+          observation: dto.observation || 'Anulación / Corrección de factura',
+          paymentDetails: [
+            {
+              paymentForm: '1',
+              paymentMethodCode: '10',
+              amount: result.totalAmount.toFixed(2),
+            },
+          ],
+          customer: this.mapCustomerToFactus(invoice.customer),
+          items: factusItems,
+        };
+
+        let factusResponse: any;
+        try {
+          factusResponse =
+            await this.factusGateway.createCreditNote(factusPayload);
+        } catch (error) {
+          throw new BadRequestException(
+            `Error al emitir Nota de Crédito en Factus: ${error.message}`,
+          );
+        }
+
+        noteNumber = factusResponse.data.number || `NC-PEND-${Date.now()}`;
+        cude = factusResponse.data.cude || null;
+        qrUrl =
+          factusResponse.data.qrUrl || factusResponse.data.links?.qr || null;
+        publicUrl =
+          factusResponse.data.publicUrl ||
+          factusResponse.data.links?.publicUrl ||
+          null;
+      } else {
+        // --- Manual path: generate sequential note number ---
+        noteNumber = await this.getNextManualNoteNumber(
+          queryRunner,
+          invoice,
+          'NC-MAN',
+        );
+      }
+
+      // Create and save the CreditNote entity
       const creditNote = this.creditNoteRepository.create({
         referenceCode,
         noteNumber,
-        cude: null,
+        cude,
         correctionConceptCode: dto.correctionConceptCode,
-        amount: totalAmount,
+        amount: result.totalAmount,
         observation: dto.observation,
-        qrUrl: null,
-        publicUrl: null,
+        qrUrl,
+        publicUrl,
         invoiceId: invoice.id,
       });
 
       const savedNote = await queryRunner.manager.save(creditNote);
 
-      for (const item of noteItems) {
-        item.creditNoteId = savedNote.id;
-      }
-      await queryRunner.manager.save(CreditNoteItem, noteItems);
+      // Create and save CreditNoteItem + CreditNoteItemTax records
+      for (const item of result.items) {
+        const createdItem = await queryRunner.manager.save(CreditNoteItem, {
+          creditNoteId: savedNote.id,
+          codeReference: item.codeReference,
+          name: item.name,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          subtotal: item.subtotal,
+          productId: item.productId,
+          purchasePrice: item.purchasePrice,
+          taxAmount: item.taxAmount,
+          restored: item.restored ?? false,
+        });
 
-      if (dto.correctionConceptCode === '2') {
-        invoice.status = InvoiceStatus.CANCELLED;
+        // Save tax breakdown for this item
+        if (item.noteItemTaxes && item.noteItemTaxes.length > 0) {
+          for (const t of item.noteItemTaxes) {
+            await queryRunner.manager.save(CreditNoteItemTax, {
+              creditNoteItemId: createdItem.id,
+              taxId: t.taxId || undefined,
+              taxCode: t.taxCode,
+              taxName: t.taxName,
+              taxRate: t.taxRate,
+              taxAmount: t.taxAmount,
+            });
+          }
+        }
+      }
+
+      // Update invoice status if the handler specified a change
+      if (result.updatedInvoiceStatus) {
+        invoice.status = result.updatedInvoiceStatus as InvoiceStatus;
         await queryRunner.manager.save(invoice);
       }
 
       await queryRunner.commitTransaction();
 
-      savedNote.items = noteItems as CreditNoteItem[];
-      return savedNote;
+      // Reload the saved note with items for the return value
+      return this.creditNoteRepository.findOne({
+        where: { id: savedNote.id },
+        relations: ['items'],
+      }) as Promise<CreditNote>;
     } catch (error) {
       await queryRunner.rollbackTransaction();
       throw error instanceof BadRequestException
@@ -760,101 +952,141 @@ export class SalesService {
     }
   }
 
-  private async createDebitNoteLocal(
+  /**
+   * Processes a debit note using the appropriate scenario handler.
+   * Shared by both manual and electronic paths.
+   */
+  private async processDebitNoteWithHandler(
     invoice: Invoice,
     dto: CreateSalesNoteDto,
+    handler: ScenarioHandler,
+    isElectronic: boolean,
   ): Promise<DebitNote> {
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
     try {
-      const noteNumber = await this.getNextManualNoteNumber(
-        queryRunner,
+      // Execute the scenario handler
+      const params: ScenarioParams = {
         invoice,
-        'ND-MAN',
-      );
+        dto,
+        queryRunner: queryRunner.manager,
+        factusGateway: isElectronic ? this.factusGateway : undefined,
+      };
+      const result: ScenarioResult = await handler.execute(params);
 
-      let totalAmount = 0;
-      const noteItems: Partial<DebitNoteItem>[] = [];
-
-      if (dto.items && dto.items.length > 0) {
-        for (const itemDto of dto.items) {
-          const matchingInvoiceItem = invoice.items.find(
-            (ii) =>
-              ii.product?.sku === itemDto.codeReference ||
-              ii.productId === itemDto.codeReference,
-          );
-
-          if (!matchingInvoiceItem) {
-            throw new BadRequestException(
-              `El ítem con código ${itemDto.codeReference} no pertenece a esta factura`,
-            );
-          }
-
-          if (itemDto.quantity > matchingInvoiceItem.quantity) {
-            throw new BadRequestException(
-              `La cantidad a debitar (${itemDto.quantity}) supera la cantidad facturada (${matchingInvoiceItem.quantity})`,
-            );
-          }
-
-          const price =
-            itemDto.price !== undefined
-              ? Number(itemDto.price)
-              : Number(matchingInvoiceItem.unitPrice);
-
-          const subtotal = itemDto.quantity * price;
-          totalAmount += subtotal;
-
-          noteItems.push({
-            debitNoteId: undefined,
-            codeReference: itemDto.codeReference,
-            name: matchingInvoiceItem.product?.name || 'Producto',
-            quantity: itemDto.quantity,
-            unitPrice: price,
-            subtotal,
-          });
-        }
-      } else {
-        totalAmount = Number(invoice.totalAmount);
-        for (const item of invoice.items) {
-          const subtotal = Number(item.quantity) * Number(item.unitPrice);
-          noteItems.push({
-            debitNoteId: undefined,
-            codeReference: item.product?.sku || item.productId,
-            name: item.product?.name || 'Producto',
-            quantity: Number(item.quantity),
-            unitPrice: Number(item.unitPrice),
-            subtotal,
-          });
-        }
-      }
-
+      let noteNumber: string | null = null;
+      let cude: string | null = null;
+      let qrUrl: string | null = null;
+      let publicUrl: string | null = null;
       const referenceCode = `ND-${invoice.invoiceNumber}-${Date.now()}`;
 
+      if (isElectronic) {
+        // --- Electronic path: build Factus payload and call gateway ---
+        const factusItems = result.factusItems || [];
+
+        const factusPayload = {
+          referenceCode,
+          correctionConceptCode: dto.correctionConceptCode,
+          billNumber: dto.billNumber || invoice.invoiceNumber,
+          numberingRangeId: dto.numberingRangeId,
+          observation: dto.observation || 'Nota Débito por intereses o ajuste',
+          paymentDetails: [
+            {
+              paymentForm: '1',
+              paymentMethodCode: '10',
+              amount: result.totalAmount.toFixed(2),
+            },
+          ],
+          customer: this.mapCustomerToFactus(invoice.customer),
+          items: factusItems,
+        };
+
+        let factusResponse: any;
+        try {
+          factusResponse =
+            await this.factusGateway.createDebitNote(factusPayload);
+        } catch (error) {
+          throw new BadRequestException(
+            `Error al emitir Nota de Débito en Factus: ${error.message}`,
+          );
+        }
+
+        noteNumber = factusResponse.data.number || `ND-PEND-${Date.now()}`;
+        cude = factusResponse.data.cude || null;
+        qrUrl =
+          factusResponse.data.qrUrl || factusResponse.data.links?.qr || null;
+        publicUrl =
+          factusResponse.data.publicUrl ||
+          factusResponse.data.links?.publicUrl ||
+          null;
+      } else {
+        // --- Manual path: generate sequential note number ---
+        noteNumber = await this.getNextManualNoteNumber(
+          queryRunner,
+          invoice,
+          'ND-MAN',
+        );
+      }
+
+      // Create and save the DebitNote entity
       const debitNote = this.debitNoteRepository.create({
         referenceCode,
         noteNumber,
-        cude: null,
+        cude,
         correctionConceptCode: dto.correctionConceptCode,
-        amount: totalAmount,
+        amount: result.totalAmount,
         observation: dto.observation,
-        qrUrl: null,
-        publicUrl: null,
+        qrUrl,
+        publicUrl,
         invoiceId: invoice.id,
       });
 
       const savedNote = await queryRunner.manager.save(debitNote);
 
-      for (const item of noteItems) {
-        item.debitNoteId = savedNote.id;
+      // Create and save DebitNoteItem + DebitNoteItemTax records
+      for (const item of result.items) {
+        const createdItem = await queryRunner.manager.save(DebitNoteItem, {
+          debitNoteId: savedNote.id,
+          codeReference: item.codeReference,
+          name: item.name,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          subtotal: item.subtotal,
+          productId: item.productId,
+          purchasePrice: item.purchasePrice,
+          taxAmount: item.taxAmount,
+        });
+
+        // Save tax breakdown for this item
+        if (item.noteItemTaxes && item.noteItemTaxes.length > 0) {
+          for (const t of item.noteItemTaxes) {
+            await queryRunner.manager.save(DebitNoteItemTax, {
+              debitNoteItemId: createdItem.id,
+              taxId: t.taxId || undefined,
+              taxCode: t.taxCode,
+              taxName: t.taxName,
+              taxRate: t.taxRate,
+              taxAmount: t.taxAmount,
+            });
+          }
+        }
       }
-      await queryRunner.manager.save(DebitNoteItem, noteItems);
+
+      // Update invoice status if the handler specified a change
+      if (result.updatedInvoiceStatus) {
+        invoice.status = result.updatedInvoiceStatus as InvoiceStatus;
+        await queryRunner.manager.save(invoice);
+      }
 
       await queryRunner.commitTransaction();
 
-      savedNote.items = noteItems as DebitNoteItem[];
-      return savedNote;
+      // Reload the saved note with items for the return value
+      return this.debitNoteRepository.findOne({
+        where: { id: savedNote.id },
+        relations: ['items'],
+      }) as Promise<DebitNote>;
     } catch (error) {
       await queryRunner.rollbackTransaction();
       throw error instanceof BadRequestException
@@ -873,7 +1105,12 @@ export class SalesService {
   ): Promise<CreditNote> {
     const invoice = await this.invoiceRepository.findOne({
       where: { id: invoiceId },
-      relations: ['customer', 'items', 'items.product'],
+      relations: [
+        'customer',
+        'items',
+        'items.product',
+        'items.invoiceItemTaxes',
+      ],
     });
 
     if (!invoice) {
@@ -892,133 +1129,20 @@ export class SalesService {
     // Guard: reject electronic note for manual invoice
     this.validateNoteElectronicStatus(isElectronicNote, invoice);
 
-    if (!isElectronicNote) {
-      return this.createCreditNoteLocal(invoice, dto);
-    }
-
-    // --- Electronic invoice path (unchanged) ---
-    const itemsToCredit: any[] = [];
-    let totalAmount = 0;
-    let factusTotalAmount = 0;
-
-    if (dto.items && dto.items.length > 0) {
-      for (const itemDto of dto.items) {
-        const matchingInvoiceItem = invoice.items.find(
-          (ii) =>
-            ii.product?.sku === itemDto.codeReference ||
-            ii.productId === itemDto.codeReference,
-        );
-
-        if (!matchingInvoiceItem) {
-          throw new BadRequestException(
-            `El ítem con código ${itemDto.codeReference} no pertenece a esta factura`,
-          );
-        }
-
-        if (itemDto.quantity > matchingInvoiceItem.quantity) {
-          throw new BadRequestException(
-            `La cantidad a acreditar (${itemDto.quantity}) supera la cantidad facturada (${matchingInvoiceItem.quantity})`,
-          );
-        }
-
-        const price =
-          itemDto.price !== undefined
-            ? Number(itemDto.price)
-            : Number(matchingInvoiceItem.unitPrice);
-
-        totalAmount += itemDto.quantity * price;
-
-        const priceBeforeTax = Number((Number(price) / 1.19).toFixed(2));
-        const itemSubtotal = priceBeforeTax * itemDto.quantity;
-        const itemTax = Number((itemSubtotal * 0.19).toFixed(2));
-        factusTotalAmount += itemSubtotal + itemTax;
-
-        itemsToCredit.push({
-          codeReference: itemDto.codeReference,
-          name: matchingInvoiceItem.product?.name || 'Producto',
-          quantity: itemDto.quantity,
-          discountRate: 0,
-          price: priceBeforeTax,
-          unitMeasureCode: '94',
-          standardCode: '999',
-          taxes: [{ code: '01', rate: '19.00' }],
-        });
-      }
-    } else {
-      totalAmount = Number(invoice.totalAmount);
-      for (const item of invoice.items) {
-        const priceBeforeTax = Number(
-          (Number(item.unitPrice) / 1.19).toFixed(2),
-        );
-        const itemSubtotal = priceBeforeTax * Number(item.quantity);
-        const itemTax = Number((itemSubtotal * 0.19).toFixed(2));
-        factusTotalAmount += itemSubtotal + itemTax;
-
-        itemsToCredit.push({
-          codeReference: item.product?.sku || item.productId,
-          name: item.product?.name || 'Producto',
-          quantity: Number(item.quantity),
-          discountRate: 0,
-          price: priceBeforeTax,
-          unitMeasureCode: '94',
-          standardCode: '999',
-          taxes: [{ code: '01', rate: '19.00' }],
-        });
-      }
-    }
-
-    const referenceCode = `NC-${invoice.invoiceNumber}-${Date.now()}`;
-
-    const factusPayload = {
-      referenceCode,
-      correctionConceptCode: dto.correctionConceptCode,
-      billNumber: dto.billNumber || invoice.invoiceNumber,
-      numberingRangeId: dto.numberingRangeId,
-      observation: dto.observation || 'Anulación / Corrección de factura',
-      paymentDetails: [
-        {
-          paymentForm: '1',
-          paymentMethodCode: '10',
-          amount: factusTotalAmount.toFixed(2),
-        },
-      ],
-      customer: this.mapCustomerToFactus(invoice.customer),
-      items: itemsToCredit,
-    };
-
-    try {
-      const factusResponse =
-        await this.factusGateway.createCreditNote(factusPayload);
-
-      const creditNote = this.creditNoteRepository.create({
-        referenceCode,
-        noteNumber: factusResponse.data.number || `NC-PEND-${Date.now()}`,
-        cude: factusResponse.data.cude || null,
-        correctionConceptCode: dto.correctionConceptCode,
-        amount: totalAmount,
-        observation: dto.observation,
-        qrUrl:
-          factusResponse.data.qrUrl || factusResponse.data.links?.qr || null,
-        publicUrl:
-          factusResponse.data.publicUrl ||
-          factusResponse.data.links?.publicUrl ||
-          null,
-        invoiceId,
-      });
-
-      const savedNote = await this.creditNoteRepository.save(creditNote);
-
-      if (dto.correctionConceptCode === '2') {
-        invoice.status = InvoiceStatus.CANCELLED;
-        await this.invoiceRepository.save(invoice);
-      }
-
-      return savedNote;
-    } catch (error) {
+    // --- Route to scenario handler ---
+    const handler = this.creditScenarioMap[dto.correctionConceptCode];
+    if (!handler) {
       throw new BadRequestException(
-        `Error al emitir Nota de Crédito en Factus: ${error.message}`,
+        `Concepto de corrección inválido para nota de crédito: ${dto.correctionConceptCode}`,
       );
     }
+
+    return this.processCreditNoteWithHandler(
+      invoice,
+      dto,
+      handler,
+      isElectronicNote,
+    );
   }
 
   async createDebitNote(
@@ -1027,7 +1151,12 @@ export class SalesService {
   ): Promise<DebitNote> {
     const invoice = await this.invoiceRepository.findOne({
       where: { id: invoiceId },
-      relations: ['customer', 'items', 'items.product'],
+      relations: [
+        'customer',
+        'items',
+        'items.product',
+        'items.invoiceItemTaxes',
+      ],
     });
 
     if (!invoice) {
@@ -1040,131 +1169,26 @@ export class SalesService {
     // Guard: reject electronic note for manual invoice
     this.validateNoteElectronicStatus(isElectronicNote, invoice);
 
-    if (!isElectronicNote) {
-      return this.createDebitNoteLocal(invoice, dto);
-    }
-
-    // --- Electronic invoice path (unchanged) ---
-    const itemsToDebit: any[] = [];
-    let totalAmount = 0;
-    let factusTotalAmount = 0;
-
-    if (dto.items && dto.items.length > 0) {
-      for (const itemDto of dto.items) {
-        const matchingInvoiceItem = invoice.items.find(
-          (ii) =>
-            ii.product?.sku === itemDto.codeReference ||
-            ii.productId === itemDto.codeReference,
-        );
-
-        if (!matchingInvoiceItem) {
-          throw new BadRequestException(
-            `El ítem con código ${itemDto.codeReference} no pertenece a esta factura`,
-          );
-        }
-
-        if (itemDto.quantity > matchingInvoiceItem.quantity) {
-          throw new BadRequestException(
-            `La cantidad a debitar (${itemDto.quantity}) supera la cantidad facturada (${matchingInvoiceItem.quantity})`,
-          );
-        }
-
-        const price =
-          itemDto.price !== undefined
-            ? Number(itemDto.price)
-            : Number(matchingInvoiceItem?.unitPrice || 0);
-
-        totalAmount += itemDto.quantity * price;
-
-        const priceBeforeTax = Number((Number(price) / 1.19).toFixed(2));
-        const itemSubtotal = priceBeforeTax * itemDto.quantity;
-        const itemTax = Number((itemSubtotal * 0.19).toFixed(2));
-        factusTotalAmount += itemSubtotal + itemTax;
-
-        itemsToDebit.push({
-          codeReference: itemDto.codeReference,
-          name: matchingInvoiceItem?.product?.name || 'Producto',
-          quantity: itemDto.quantity,
-          discountRate: 0,
-          price: priceBeforeTax,
-          unitMeasureCode: '94',
-          standardCode: '999',
-          taxes: [{ code: '01', rate: '19.00' }],
-        });
-      }
-    } else {
-      totalAmount = Number(invoice.totalAmount);
-      for (const item of invoice.items) {
-        const priceBeforeTax = Number(
-          (Number(item.unitPrice) / 1.19).toFixed(2),
-        );
-        const itemSubtotal = priceBeforeTax * Number(item.quantity);
-        const itemTax = Number((itemSubtotal * 0.19).toFixed(2));
-        factusTotalAmount += itemSubtotal + itemTax;
-
-        itemsToDebit.push({
-          codeReference: item.product?.sku || item.productId,
-          name: item.product?.name || 'Producto',
-          quantity: Number(item.quantity),
-          discountRate: 0,
-          price: priceBeforeTax,
-          unitMeasureCode: '94',
-          standardCode: '999',
-          taxes: [{ code: '01', rate: '19.00' }],
-        });
-      }
-    }
-
-    const referenceCode = `ND-${invoice.invoiceNumber}-${Date.now()}`;
-
-    const factusPayload = {
-      referenceCode,
-      correctionConceptCode: dto.correctionConceptCode,
-      billNumber: dto.billNumber || invoice.invoiceNumber,
-      numberingRangeId: dto.numberingRangeId,
-      observation: dto.observation || 'Nota Débito por intereses o ajuste',
-      paymentDetails: [
-        {
-          paymentForm: '1',
-          paymentMethodCode: '10',
-          amount: factusTotalAmount.toFixed(2),
-        },
-      ],
-      customer: this.mapCustomerToFactus(invoice.customer),
-      items: itemsToDebit,
-    };
-
-    try {
-      const factusResponse =
-        await this.factusGateway.createDebitNote(factusPayload);
-
-      const debitNote = this.debitNoteRepository.create({
-        referenceCode,
-        noteNumber: factusResponse.data.number || `ND-PEND-${Date.now()}`,
-        cude: factusResponse.data.cude || null,
-        correctionConceptCode: dto.correctionConceptCode,
-        amount: totalAmount,
-        observation: dto.observation,
-        qrUrl:
-          factusResponse.data.qrUrl || factusResponse.data.links?.qr || null,
-        publicUrl:
-          factusResponse.data.publicUrl ||
-          factusResponse.data.links?.publicUrl ||
-          null,
-        invoiceId,
-      });
-
-      return await this.debitNoteRepository.save(debitNote);
-    } catch (error) {
+    // --- Route to scenario handler ---
+    const handler = this.debitScenarioMap[dto.correctionConceptCode];
+    if (!handler) {
       throw new BadRequestException(
-        `Error al emitir Nota de Débito en Factus: ${error.message}`,
+        `Concepto de corrección inválido para nota de débito: ${dto.correctionConceptCode}`,
       );
     }
+
+    return this.processDebitNoteWithHandler(
+      invoice,
+      dto,
+      handler,
+      isElectronicNote,
+    );
   }
 
   async findNotesByInvoice(invoiceId: string) {
     const creditNotes = await this.creditNoteRepository.find({
       where: { invoiceId },
+      relations: ['items'],
       order: { createdAt: 'DESC' },
     });
 
@@ -1274,7 +1298,12 @@ export class SalesService {
     if (type === 'Credit') {
       note = await this.creditNoteRepository.findOne({
         where: { id },
-        relations: ['invoice', 'invoice.customer'],
+        relations: [
+          'invoice',
+          'invoice.customer',
+          'items',
+          'items.noteItemTaxes',
+        ],
       });
       if (!note) {
         throw new NotFoundException(
@@ -1285,7 +1314,12 @@ export class SalesService {
     } else {
       note = await this.debitNoteRepository.findOne({
         where: { id },
-        relations: ['invoice', 'invoice.customer'],
+        relations: [
+          'invoice',
+          'invoice.customer',
+          'items',
+          'items.noteItemTaxes',
+        ],
       });
       if (!note) {
         throw new NotFoundException(
@@ -1343,14 +1377,70 @@ export class SalesService {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     });
-    const baseStr = (Number(note.amount) / 1.19).toLocaleString('en-US', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    });
-    const taxStr = (
-      Number(note.amount) -
-      Number(note.amount) / 1.19
-    ).toLocaleString('en-US', {
+
+    // Compute base and tax from actual item tax data when available
+    let baseAmount = Number(note.amount);
+    let taxLinesHtml = '';
+    if (note.items && note.items.length > 0) {
+      const totalItemSubtotals = note.items.reduce(
+        (sum: number, item: any) => sum + Number(item.subtotal || 0),
+        0,
+      );
+      const totalTaxes = note.items.reduce((sum: number, item: any) => {
+        if (item.noteItemTaxes && item.noteItemTaxes.length > 0) {
+          return (
+            sum +
+            item.noteItemTaxes.reduce(
+              (s: number, t: any) => s + Number(t.taxAmount || 0),
+              0,
+            )
+          );
+        }
+        return sum;
+      }, 0);
+
+      // If we have reliable item data, derive base from subtotals (which are before tax)
+      if (totalItemSubtotals > 0) {
+        baseAmount = totalItemSubtotals;
+      }
+
+      // Collect unique tax labels from item taxes
+      const taxLabels = new Map<string, number>();
+      for (const item of note.items) {
+        if (item.noteItemTaxes) {
+          for (const t of item.noteItemTaxes) {
+            const label = t.taxName || `IVA ${t.taxRate}%`;
+            taxLabels.set(
+              label,
+              (taxLabels.get(label) || 0) + Number(t.taxAmount || 0),
+            );
+          }
+        }
+      }
+
+      if (taxLabels.size > 0) {
+        taxLinesHtml = [...taxLabels.entries()]
+          .map(
+            ([label, amount]) =>
+              `${label}: $${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+          )
+          .join('\n');
+      } else {
+        // Fallback: compute single implied tax rate
+        const impliedTax =
+          totalTaxes > 0 ? totalTaxes : Number(note.amount) - baseAmount;
+        const taxLabelVal =
+          impliedTax > 0
+            ? `$${impliedTax.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+            : '$0.00';
+        taxLinesHtml = `Impuestos: ${taxLabelVal}`;
+      }
+    } else {
+      // No items loaded — show total only, no hardcoded tax
+      taxLinesHtml = `Impuestos: $0.00`;
+    }
+
+    const baseStr = baseAmount.toLocaleString('en-US', {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     });
@@ -1365,7 +1455,7 @@ export class SalesService {
       `NIT/CC: ${customerTaxId}`,
       `Concepto: ${note.observation || 'Sin justificacion especificada'}`,
       `Monto Base: $${baseStr}`,
-      `IVA 19%: $${taxStr}`,
+      ...taxLinesHtml.split('\n'),
       `VALOR TOTAL: $${amountStr}`,
       `---------------------------------------`,
       `SOPORTE DIGITAL SIMULADO DE LA DIAN`,

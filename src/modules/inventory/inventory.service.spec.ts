@@ -13,6 +13,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InvoiceItem } from '../sales/entities/invoice-item.entity';
+import { CreditNoteItem } from '../sales/entities/credit-note-item.entity';
 
 describe('InventoryService', () => {
   let service: InventoryService;
@@ -43,6 +44,10 @@ describe('InventoryService', () => {
   };
 
   const mockInvoiceItemRepository = {
+    find: jest.fn(),
+  };
+
+  const mockCreditNoteItemRepository = {
     find: jest.fn(),
   };
 
@@ -79,7 +84,7 @@ describe('InventoryService', () => {
       getRepositoryToken(InventoryBatch),
     );
 
-    jest.clearAllMocks();
+    jest.resetAllMocks();
     // Default transaction mock to execute the callback with the mock manager
     mockProductRepository.manager.transaction.mockImplementation((cb) =>
       cb(mockEntityManager),
@@ -87,8 +92,15 @@ describe('InventoryService', () => {
     mockProductRepository.manager.getRepository.mockImplementation((entity) =>
       mockEntityManager.getRepository(entity),
     );
+    mockEntityManager.getRepository.mockImplementation((entity) => {
+      if (entity === Product) return mockProductRepository;
+      if (entity === InventoryBatch) return mockBatchRepository;
+      if (entity === InvoiceItem) return mockInvoiceItemRepository;
+      if (entity === CreditNoteItem) return mockCreditNoteItemRepository;
+    });
     mockBatchRepository.create.mockImplementation((dto) => dto);
     mockProductRepository.create.mockImplementation((dto) => dto);
+    mockCreditNoteItemRepository.find.mockResolvedValue([]); // default: no returns
   });
 
   describe('UpdateProductDto', () => {
@@ -525,6 +537,237 @@ describe('InventoryService', () => {
       batch.user = { id: 'user-uuid', email: 'test@example.com' } as any;
       expect(batch.userId).toBe('user-uuid');
       expect(batch.user.email).toBe('test@example.com');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // restoreStock
+  // ---------------------------------------------------------------------------
+  describe('restoreStock', () => {
+    const productId = 'prod-restore-1';
+
+    it('should restore units to a single consumed batch and update stock', async () => {
+      const product = {
+        id: productId,
+        currentStock: 7,
+        averagePurchasePrice: 15,
+        name: 'Test Product',
+      } as Product;
+
+      const batch = {
+        id: 'batch-1',
+        productId,
+        initialQuantity: 10,
+        remainingQuantity: 7, // consumed 3
+        purchasePrice: 10,
+        createdAt: new Date('2026-06-20T10:00:00Z'),
+      } as InventoryBatch;
+
+      mockProductRepository.findOne.mockResolvedValue(product);
+      // Use a wrapper to track mutations on the batch reference
+      let currentBatch = { ...batch };
+      mockBatchRepository.find.mockImplementation(() => {
+        return Promise.resolve([currentBatch]);
+      });
+      mockProductRepository.save.mockImplementation((p: any) =>
+        Promise.resolve(p),
+      );
+      mockBatchRepository.save.mockImplementation((b: any) => {
+        currentBatch = b;
+        return Promise.resolve(b);
+      });
+
+      const totalCost = await service.restoreStock(productId, 2);
+
+      // Batch should have 2 units restored: 7 + 2 = 9
+      expect(currentBatch.remainingQuantity).toBe(9);
+      // Product stock should increase by 2: 7 + 2 = 9
+      expect(product.currentStock).toBe(9);
+      // Cost: 2 units * $10 = $20
+      expect(totalCost).toBe(20);
+    });
+
+    it('should restore across multiple batches using LIFO order (most recent consumption first)', async () => {
+      const product = {
+        id: productId,
+        currentStock: 7,
+        averagePurchasePrice: 15,
+        name: 'Test Product',
+      } as Product;
+
+      // Batch A: older batch, consumed 3 of 10 (remaining=7)
+      // Batch B: newer batch, consumed 5 of 10 (remaining=5)
+      // LIFO restore starts with Batch B (most recently consumed)
+      const batchA = {
+        id: 'batch-a',
+        productId,
+        initialQuantity: 10,
+        remainingQuantity: 7,
+        purchasePrice: 10,
+        createdAt: new Date('2026-06-20T10:00:00Z'),
+      } as InventoryBatch;
+
+      const batchB = {
+        id: 'batch-b',
+        productId,
+        initialQuantity: 10,
+        remainingQuantity: 5,
+        purchasePrice: 12,
+        createdAt: new Date('2026-06-20T11:00:00Z'),
+      } as InventoryBatch;
+
+      mockProductRepository.findOne.mockResolvedValue(product);
+      // trackBatches reflects runtime mutations
+      const trackBatches = [batchB, batchA];
+      mockBatchRepository.find.mockImplementation(() =>
+        Promise.resolve(trackBatches),
+      );
+      mockProductRepository.save.mockImplementation((p: any) =>
+        Promise.resolve(p),
+      );
+      mockBatchRepository.save.mockImplementation((b: any) => {
+        // Update the tracked reference so find always returns current state
+        const idx = trackBatches.findIndex((tb) => tb.id === b.id);
+        if (idx !== -1) trackBatches[idx] = b;
+        return Promise.resolve(b);
+      });
+
+      const totalCost = await service.restoreStock(productId, 4);
+
+      // Batch B (newest) gets all 4 restored: 5 + 4 = 9
+      expect(batchB.remainingQuantity).toBe(9);
+      // Batch A unchanged: nothing left to restore
+      expect(batchA.remainingQuantity).toBe(7);
+      // Product stock: 7 + 4 = 11
+      expect(product.currentStock).toBe(11);
+      // Cost: 4 * $12 = $48 (all from batch B at $12/unit)
+      expect(totalCost).toBe(48);
+    });
+
+    it('should restore full consumed quantity across a single batch', async () => {
+      const product = {
+        id: productId,
+        currentStock: 7,
+        averagePurchasePrice: 15,
+        name: 'Test Product',
+      } as Product;
+
+      const batch = {
+        id: 'batch-full',
+        productId,
+        initialQuantity: 10,
+        remainingQuantity: 7, // consumed 3
+        purchasePrice: 10,
+        createdAt: new Date('2026-06-20T10:00:00Z'),
+      } as InventoryBatch;
+
+      let currentBatch = { ...batch };
+      mockProductRepository.findOne.mockResolvedValue(product);
+      mockBatchRepository.find.mockImplementation(() =>
+        Promise.resolve([currentBatch]),
+      );
+      mockProductRepository.save.mockImplementation((p: any) =>
+        Promise.resolve(p),
+      );
+      mockBatchRepository.save.mockImplementation((b: any) => {
+        currentBatch = b;
+        return Promise.resolve(b);
+      });
+
+      const totalCost = await service.restoreStock(productId, 3);
+
+      expect(currentBatch.remainingQuantity).toBe(10); // fully restored to initial
+      expect(product.currentStock).toBe(10); // 7 + 3
+      expect(totalCost).toBe(30); // 3 * $10
+    });
+
+    it('should throw NotFoundException when product does not exist', async () => {
+      mockProductRepository.findOne.mockResolvedValue(null);
+
+      await expect(service.restoreStock('nonexistent', 1)).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('should participate in a transaction when manager is provided', async () => {
+      const product = {
+        id: productId,
+        currentStock: 7,
+        averagePurchasePrice: 15,
+        name: 'Test Product',
+      } as Product;
+
+      let currentBatch = {
+        id: 'batch-tx',
+        productId,
+        initialQuantity: 10,
+        remainingQuantity: 7,
+        purchasePrice: 10,
+        createdAt: new Date('2026-06-20T10:00:00Z'),
+      } as InventoryBatch;
+
+      mockProductRepository.findOne.mockResolvedValue(product);
+      mockBatchRepository.find.mockImplementation(() =>
+        Promise.resolve([currentBatch]),
+      );
+      mockProductRepository.save.mockImplementation((p: any) =>
+        Promise.resolve(p),
+      );
+      mockBatchRepository.save.mockImplementation((b: any) => {
+        currentBatch = b;
+        return Promise.resolve(b);
+      });
+
+      const totalCost = await service.restoreStock(
+        productId,
+        2,
+        mockEntityManager as any,
+      );
+
+      // Manager.getRepository was called for both Product and InventoryBatch
+      expect(mockEntityManager.getRepository).toHaveBeenCalledWith(Product);
+      expect(mockEntityManager.getRepository).toHaveBeenCalledWith(
+        InventoryBatch,
+      );
+      expect(totalCost).toBe(20);
+    });
+
+    it('should not exceed initialQuantity when restoring to a batch (cap enforcement)', async () => {
+      const product = {
+        id: productId,
+        currentStock: 7,
+        averagePurchasePrice: 15,
+        name: 'Test Product',
+      } as Product;
+
+      // Batch consumed 3 units (initial=10, remaining=7) → max restore = 3
+      let currentBatch = {
+        id: 'batch-cap',
+        productId,
+        initialQuantity: 10,
+        remainingQuantity: 7,
+        purchasePrice: 10,
+        createdAt: new Date('2026-06-20T10:00:00Z'),
+      } as InventoryBatch;
+
+      mockProductRepository.findOne.mockResolvedValue(product);
+      mockBatchRepository.find.mockImplementation(() =>
+        Promise.resolve([currentBatch]),
+      );
+      mockProductRepository.save.mockImplementation((p: any) =>
+        Promise.resolve(p),
+      );
+      mockBatchRepository.save.mockImplementation((b: any) => {
+        currentBatch = b;
+        return Promise.resolve(b);
+      });
+
+      // Request restore 5, but only 3 consumed — restores 3 (capped at initialQuantity)
+      const totalCost = await service.restoreStock(productId, 5);
+
+      expect(currentBatch.remainingQuantity).toBe(10); // capped at initialQuantity
+      expect(product.currentStock).toBe(10); // 7 + 3 (only 3 could be restored)
+      expect(totalCost).toBe(30); // 3 units * $10
     });
   });
 });
