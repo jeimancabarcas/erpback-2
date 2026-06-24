@@ -187,6 +187,7 @@ export interface FactusDebitNoteResponse {
 
 export interface IFactusInvoicingGateway {
   createInvoice(invoice: FactusInvoiceRequest): Promise<FactusInvoiceResponse>;
+  destroyInvoice(referenceCode: string): Promise<{ status: string; message: string }>;
   createCreditNote(
     creditNote: FactusCreditNoteRequest,
   ): Promise<FactusCreditNoteResponse>;

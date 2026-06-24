@@ -72,6 +72,9 @@ export class Invoice {
   @Column({ type: 'text', nullable: true })
   notes: string;
 
+  @Column({ name: 'factus_reference_code', type: 'varchar', nullable: true })
+  factusReferenceCode?: string;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

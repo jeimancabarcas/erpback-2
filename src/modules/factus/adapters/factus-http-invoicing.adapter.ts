@@ -111,6 +111,35 @@ export class FactusHttpInvoicingAdapter implements IFactusInvoicingGateway {
     }
   }
 
+  private async makeDeleteRequest(endpoint: string): Promise<any> {
+    const baseUrl = this.configService.get<string>('FACTUS_API_URL');
+    const token = await this.authGateway.getAccessToken();
+
+    try {
+      this.logger.log(`Sending DELETE request to ${endpoint}...`);
+      const response = await fetch(`${baseUrl}${endpoint}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        this.logger.error(
+          `Error response from Factus API [${response.status}]: ${errorText}`,
+        );
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      this.logger.error(`Failed request to ${endpoint}: ${error.message}`);
+      throw error;
+    }
+  }
+
   async createInvoice(
     invoice: FactusInvoiceRequest,
   ): Promise<FactusInvoiceResponse> {
@@ -166,6 +195,18 @@ export class FactusHttpInvoicingAdapter implements IFactusInvoicingGateway {
       payload,
     );
     return this.mapResponse(rawResponse);
+  }
+
+  async destroyInvoice(
+    referenceCode: string,
+  ): Promise<{ status: string; message: string }> {
+    const response = await this.makeDeleteRequest(
+      `/v2/bills/destroy/reference/${encodeURIComponent(referenceCode)}`,
+    );
+    return {
+      status: response.status || 'ok',
+      message: response.message || 'Factura eliminada correctamente',
+    };
   }
 
   async createCreditNote(

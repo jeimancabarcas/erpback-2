@@ -360,7 +360,6 @@ export class SalesService {
     }
 
     // Build Factus payload from existing invoice data
-    let factusTotalAmount = 0;
     const factusItems: FactusItem[] = [];
 
     for (const item of invoice.items) {
@@ -375,23 +374,15 @@ export class SalesService {
           ? Number((unitPrice / (1 + totalTaxRate / 100)).toFixed(2))
           : unitPrice;
 
-      const itemSubtotal = priceBeforeTax * Number(item.quantity);
-      let itemTaxTotal = 0;
       const factusTaxes: FactusTax[] = [];
 
       for (const tax of taxes) {
-        const taxAmt = Number(
-          ((priceBeforeTax * Number(tax.percentage)) / 100).toFixed(2),
-        );
-        itemTaxTotal += taxAmt * Number(item.quantity);
         factusTaxes.push({
           code: tax.code,
-          rate: tax.percentage.toFixed(2),
+          rate: Number(tax.percentage).toFixed(2),
           isExcluded: false,
         });
       }
-
-      factusTotalAmount += itemSubtotal + itemTaxTotal;
 
       factusItems.push({
         codeReference: item.product?.sku || item.productId,
@@ -405,7 +396,48 @@ export class SalesService {
       });
     }
 
-    const referenceCode = `FAC-REF-${invoice.invoiceNumber || invoice.id}-${Date.now()}`;
+    // Compute total the way DIAN/Factus likely does:
+    // subtotal = SUM(price * qty)
+    // tax = SUM(price * qty * rate/100) per tax
+    // total = subtotal + sum(taxes), no intermediate rounding
+    let subtotal = 0;
+    const taxTotals: Record<string, number> = {};
+    for (const fi of factusItems) {
+      const price = Number(Number(fi.price).toFixed(2));
+      const qty = Number(Number(fi.quantity).toFixed(2));
+      subtotal += price * qty;
+      for (const t of fi.taxes) {
+        const rate = Number(t.rate) / 100;
+        taxTotals[t.code] = (taxTotals[t.code] || 0) + price * qty * rate;
+      }
+    }
+    const totalTax = Object.values(taxTotals).reduce((s, v) => s + v, 0);
+    const factusTotalAmount = Number((subtotal + totalTax).toFixed(2));
+
+    // Use stored reference code if available, otherwise generate a new one
+    // Store it on the invoice so we can retry/destroy if Factus fails
+    const referenceCode =
+      invoice.factusReferenceCode ||
+      `FAC-REF-${invoice.invoiceNumber || invoice.id}-${Date.now()}`;
+
+    // Auth helper: call Factus, handle 409 with auto-cleanup + retry once
+    const callFactusWithRetry = async (): Promise<any> => {
+      try {
+        return await this.factusGateway.createInvoice(factusPayload);
+      } catch (error) {
+        if (error.message?.includes('HTTP 409')) {
+          // Destroy pending invoice using the stored reference code
+          try {
+            await this.factusGateway.destroyInvoice(referenceCode);
+          } catch {
+            // Could not destroy — will throw original 409
+          }
+          // Retry once (regardless of whether destroy succeeded)
+          return await this.factusGateway.createInvoice(factusPayload);
+        }
+        throw error;
+      }
+    };
 
     const factusPayload = {
       referenceCode,
@@ -425,8 +457,14 @@ export class SalesService {
     await queryRunner.startTransaction();
 
     try {
+      // Save reference code before calling Factus (so we can destroy on retry)
+      if (!invoice.factusReferenceCode) {
+        invoice.factusReferenceCode = referenceCode;
+        await this.invoiceRepository.save(invoice);
+      }
+
       const factusResponse =
-        await this.factusGateway.createInvoice(factusPayload);
+        await callFactusWithRetry();
 
       // Create InvoiceElectronicEmission from full Factus response
       const emission = this.invoiceEmissionRepository.create({
@@ -1286,6 +1324,49 @@ export class SalesService {
 
     const emissionNumber = invoice.emission.number;
     return this.factusGateway.downloadInvoicePdf(emissionNumber);
+  }
+
+  /**
+   * Cancela/elimina una factura pendiente en Factus usando el reference_code.
+   * Solo funciona para facturas NO validadas por DIAN.
+   * @param referenceCode El reference_code usado al crear la factura en Factus.
+   * Si no se provee, intenta con FAC-REF-{invoiceNumber}-{timestamp}.
+   */
+  async cancelFactusInvoice(
+    invoiceId: string,
+    referenceCode?: string,
+  ): Promise<{ status: string; message: string }> {
+    const invoice = await this.invoiceRepository.findOne({
+      where: { id: invoiceId },
+    });
+    if (!invoice) {
+      throw new NotFoundException(`Factura con ID ${invoiceId} no encontrada`);
+    }
+
+    // Use provided code, stored code, or fallback patterns
+    const codesToTry = referenceCode
+      ? [referenceCode]
+      : invoice.factusReferenceCode
+        ? [invoice.factusReferenceCode]
+        : [
+            `FAC-REF-${invoice.invoiceNumber || invoice.id}`,
+          ];
+
+    for (const code of codesToTry) {
+      try {
+        const result = await this.factusGateway.destroyInvoice(code);
+        // Reset invoice electronic status so it can be re-emitted
+        invoice.isElectronic = false;
+        invoice.factusReferenceCode = undefined;
+        await this.invoiceRepository.save(invoice);
+        return result;
+      } catch {
+        continue;
+      }
+    }
+    throw new BadRequestException(
+      'No se pudo cancelar la factura en Factus. Verifica el reference_code o cancélala manualmente desde el panel de Factus.',
+    );
   }
 
   async downloadAdjustmentNotePdf(

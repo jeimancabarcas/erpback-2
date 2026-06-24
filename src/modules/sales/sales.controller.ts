@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Delete,
   Body,
   Param,
   Query,
@@ -78,6 +79,14 @@ export class SalesController {
   @Get('invoices/:id/dian-pdf')
   downloadDianPdf(@Param('id', ParseUUIDPipe) id: string) {
     return this.salesService.downloadDianPdf(id);
+  }
+
+  @Delete('invoices/:id/factus')
+  cancelFactusInvoice(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query('referenceCode') referenceCode?: string,
+  ) {
+    return this.salesService.cancelFactusInvoice(id, referenceCode);
   }
 
   @Get('credit-notes/:id/pdf')
