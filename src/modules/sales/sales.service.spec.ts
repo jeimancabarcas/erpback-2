@@ -210,6 +210,7 @@ describe('SalesService.create() — sequential numbering', () => {
           // UPDATE (has id) or non-invoice entity — just pass through
           return Promise.resolve(entity);
         }),
+        insert: jest.fn().mockResolvedValue({ identifiers: [] }),
         count: jest.fn().mockResolvedValue(0),
       },
     };
@@ -287,7 +288,138 @@ describe('SalesService.create() — sequential numbering', () => {
     const second = await service.create({ ...baseDto, isElectronic: false });
     expect(second.invoiceNumber).toBe('MAN-000002');
   });
-});
+
+  // ---- Tax calculation in create() ----
+
+  it('create electronic: single taxed product (IVA 19%) passes correct Factus payload', async () => {
+    await build();
+    queryRunner.manager.findOne = jest.fn().mockImplementation(
+      (_entityClass: any, opts: any) => {
+        if (opts?.where?.id === 'cust-1')
+          return Promise.resolve(stubCustomer());
+        return Promise.resolve(
+          stubProduct({
+            sellingPrice: 119000,
+            taxes: [{ id: 'tax-1', code: '01', percentage: 19.0 }],
+          }),
+        );
+      },
+    );
+
+    factusGateway.createInvoice = jest.fn().mockResolvedValue({
+      status: 'OK',
+      message: 'Created',
+      data: {
+        number: 'SETP990003678',
+        cude: 'cude-abc',
+        isValidated: true,
+      },
+    });
+
+    await service.create({ ...baseDto, isElectronic: true });
+
+    expect(factusGateway.createInvoice).toHaveBeenCalledWith(
+      expect.objectContaining({
+        items: expect.arrayContaining([
+          expect.objectContaining({
+            price: 100000,
+            taxes: [{ code: '01', rate: '19.00', isExcluded: false }],
+          }),
+        ]),
+      }),
+    );
+  });
+
+  it('create electronic: multi-tax product (IVA 19% + INC 4%) sends two Factus tax entries', async () => {
+    await build();
+    queryRunner.manager.findOne = jest.fn().mockImplementation(
+      (_entityClass: any, opts: any) => {
+        if (opts?.where?.id === 'cust-1')
+          return Promise.resolve(stubCustomer());
+        return Promise.resolve(
+          stubProduct({
+            sellingPrice: 123000,
+            taxes: [
+              { id: 'tax-1', code: '01', percentage: 19.0 },
+              { id: 'tax-2', code: '04', percentage: 4.0 },
+            ],
+          }),
+        );
+      },
+    );
+
+    factusGateway.createInvoice = jest.fn().mockResolvedValue({
+      status: 'OK',
+      message: 'Created',
+      data: { number: 'SETP990003679', cude: 'cude-xyz', isValidated: true },
+    });
+
+    await service.create({ ...baseDto, isElectronic: true });
+
+    expect(factusGateway.createInvoice).toHaveBeenCalledWith(
+      expect.objectContaining({
+        items: expect.arrayContaining([
+          expect.objectContaining({
+            price: 100000,
+            taxes: [
+              { code: '01', rate: '19.00', isExcluded: false },
+              { code: '04', rate: '4.00', isExcluded: false },
+            ],
+          }),
+        ]),
+      }),
+    );
+  });
+
+  it('create electronic: untaxed product sends empty taxes array to Factus', async () => {
+    await build();
+    queryRunner.manager.findOne = jest.fn().mockImplementation(
+      (_entityClass: any, opts: any) => {
+        if (opts?.where?.id === 'cust-1')
+          return Promise.resolve(stubCustomer());
+        return Promise.resolve(stubProduct({ sellingPrice: 100, taxes: [] }));
+      },
+    );
+
+    factusGateway.createInvoice = jest.fn().mockResolvedValue({
+      status: 'OK',
+      message: 'Created',
+      data: { number: 'SETP990003680', cude: 'cude-123', isValidated: true },
+    });
+
+    await service.create({ ...baseDto, isElectronic: true });
+
+    expect(factusGateway.createInvoice).toHaveBeenCalledWith(
+      expect.objectContaining({
+        items: expect.arrayContaining([
+          expect.objectContaining({ taxes: [] }),
+        ]),
+      }),
+    );
+  });
+
+  it('create manual: with taxed product does NOT call Factus', async () => {
+    await build();
+    queryRunner.manager.findOne = jest.fn().mockImplementation(
+      (_entityClass: any, opts: any) => {
+        if (opts?.where?.id === 'cust-1')
+          return Promise.resolve(stubCustomer());
+        return Promise.resolve(
+          stubProduct({
+            sellingPrice: 119000,
+            taxes: [{ id: 'tax-1', code: '01', percentage: 19.0 }],
+          }),
+        );
+      },
+    );
+
+    const r = await service.create({ ...baseDto, isElectronic: false });
+
+    expect(factusGateway.createInvoice).not.toHaveBeenCalled();
+    expect(r.invoiceNumber).toMatch(/^MAN-\d{6}$/);
+    expect(r.isElectronic).toBe(false);
+  });
+  });
 
 // ---------------------------------------------------------------------------
 // Suite: manual invoice paths — emit, downloadDianPdf, notes
@@ -505,6 +637,51 @@ describe('SalesService — manual invoice paths', () => {
 
   it('emit() throws for non-existent invoice', async () => {
     await expect(service.emit('nope')).rejects.toThrow('no encontrada');
+  });
+
+  it('emit() with taxed product builds correct Factus payload with dynamic taxes', async () => {
+    const taxedProduct = {
+      id: 'prod-1', sku: 'SKU-001', name: 'Product A',
+      sellingPrice: 119000,
+      taxes: [{ id: 'tax-1', code: '01', percentage: 19.0 }],
+    };
+    invoiceRepo.findOne = jest.fn().mockResolvedValue(
+      buildManualInv({
+        items: [{
+          id: 'item-1',
+          product: taxedProduct,
+          productId: 'prod-1',
+          quantity: 1,
+          unitPrice: 119000,
+          subtotal: 119000,
+        }],
+      }),
+    );
+
+    factusGateway.createInvoice = jest.fn().mockResolvedValue({
+      status: 'OK', message: 'Success',
+      data: { number: 'SETP990003678', cude: 'cufe-abc', isValidated: true },
+    });
+
+    queryRunner.manager.save = jest.fn().mockImplementation(
+      (first: any, second?: any) => {
+        if (second !== undefined) return Promise.resolve({ ...second, id: 'emission-new' });
+        return Promise.resolve(first);
+      },
+    );
+
+    await service.emit('inv-manual');
+
+    expect(factusGateway.createInvoice).toHaveBeenCalledWith(
+      expect.objectContaining({
+        items: expect.arrayContaining([
+          expect.objectContaining({
+            price: 100000,
+            taxes: [{ code: '01', rate: '19.00', isExcluded: false }],
+          }),
+        ]),
+      }),
+    );
   });
 
   // ---- createCreditNote ----

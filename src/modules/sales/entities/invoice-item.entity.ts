@@ -3,10 +3,12 @@ import {
   PrimaryGeneratedColumn,
   Column,
   ManyToOne,
+  OneToMany,
   JoinColumn,
 } from 'typeorm';
 import { Invoice } from './invoice.entity';
 import { Product } from '../../inventory/entities/product.entity';
+import { InvoiceItemTax } from './invoice-item-tax.entity';
 
 @Entity('invoice_items')
 export class InvoiceItem {
@@ -38,4 +40,10 @@ export class InvoiceItem {
 
   @Column({ type: 'decimal', precision: 12, scale: 2 })
   subtotal: number;
+
+  @Column('decimal', { precision: 12, scale: 2, default: 0 })
+  taxAmount: number;
+
+  @OneToMany(() => InvoiceItemTax, (t) => t.invoiceItem, { cascade: true })
+  invoiceItemTaxes: InvoiceItemTax[];
 }

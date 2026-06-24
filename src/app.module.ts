@@ -23,6 +23,7 @@ import { CreditNote } from './modules/sales/entities/credit-note.entity';
 import { DebitNote } from './modules/sales/entities/debit-note.entity';
 import { CreditNoteItem } from './modules/sales/entities/credit-note-item.entity';
 import { DebitNoteItem } from './modules/sales/entities/debit-note-item.entity';
+import { InvoiceItemTax } from './modules/sales/entities/invoice-item-tax.entity';
 import { FactusModule } from './modules/factus/factus.module';
 import { PdfGenerationModule } from './modules/pdf-generation/pdf-generation.module';
 import { SettingsModule } from './modules/settings/settings.module';
@@ -61,6 +62,7 @@ import { PaymentType } from './modules/settings/entities/payment-type.entity';
           DebitNote,
           CreditNoteItem,
           DebitNoteItem,
+          InvoiceItemTax,
           Tax,
           PaymentMethod,
           PaymentType,

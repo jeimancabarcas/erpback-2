@@ -7,6 +7,7 @@ import { CreditNote } from './entities/credit-note.entity';
 import { DebitNote } from './entities/debit-note.entity';
 import { CreditNoteItem } from './entities/credit-note-item.entity';
 import { DebitNoteItem } from './entities/debit-note-item.entity';
+import { InvoiceItemTax } from './entities/invoice-item-tax.entity';
 import { SalesService } from './sales.service';
 import { SalesController } from './sales.controller';
 import { InventoryModule } from '../inventory/inventory.module';
@@ -23,6 +24,7 @@ import { PdfGenerationModule } from '../pdf-generation/pdf-generation.module';
       DebitNote,
       CreditNoteItem,
       DebitNoteItem,
+      InvoiceItemTax,
     ]),
     InventoryModule,
     FactusModule,

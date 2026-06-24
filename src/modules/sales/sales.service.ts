@@ -24,7 +24,9 @@ import { buildWhere } from '../../common/helpers/query.helper';
 import {
   IFactusInvoicingGateway,
   FactusItem,
+  FactusTax,
 } from '../factus/interfaces/factus-invoicing-gateway.interface';
+import { InvoiceItemTax } from './entities/invoice-item-tax.entity';
 import { Customer } from '../customers/entities/customer.entity';
 import { Product } from '../inventory/entities/product.entity';
 
@@ -77,14 +79,17 @@ export class SalesService {
       }
 
       // 2. Calcular totales, verificar/consumir stock y preparar ítems de Factus
+      const isElectronic = createDto.isElectronic === true;
       let totalAmount = 0;
       let factusTotalAmount = 0;
       const invoiceItems: InvoiceItem[] = [];
+      const allItemsTaxData: Partial<InvoiceItemTax>[][] = [];
       const factusItems: FactusItem[] = [];
 
       for (const item of items) {
         const product = await queryRunner.manager.findOne(Product, {
           where: { id: item.productId },
+          relations: ['taxes'],
         });
         if (!product) {
           throw new NotFoundException(
@@ -107,6 +112,46 @@ export class SalesService {
         const subtotal = item.quantity * unitPrice;
         totalAmount += subtotal;
 
+        // Cálculo dinámico de impuestos basado en product.taxes
+        const taxes = product.taxes || [];
+        const totalTaxRate = taxes.reduce(
+          (sum, t) => sum + Number(t.percentage),
+          0,
+        );
+        const priceBeforeTax =
+          totalTaxRate > 0
+            ? Number((unitPrice / (1 + totalTaxRate / 100)).toFixed(2))
+            : unitPrice;
+
+        let itemTaxAmount = 0;
+        const invoiceItemTaxes: Partial<InvoiceItemTax>[] = [];
+        const factusTaxes: FactusTax[] = [];
+
+        for (const tax of taxes) {
+          const taxAmt = Number(
+            (priceBeforeTax * Number(tax.percentage) / 100).toFixed(2),
+          );
+          itemTaxAmount += taxAmt;
+          invoiceItemTaxes.push({
+            taxId: tax.id,
+            taxCode: tax.code,
+            taxName: tax.name,
+            taxRate: Number(tax.percentage),
+            taxAmount: taxAmt,
+          });
+          factusTaxes.push({
+            code: tax.code,
+            rate: Number(tax.percentage).toFixed(2),
+            isExcluded: false,
+          });
+        }
+
+        if (isElectronic) {
+          const itemSubtotal = priceBeforeTax * item.quantity;
+          const itemTaxTotal = itemTaxAmount * item.quantity;
+          factusTotalAmount += itemSubtotal + itemTaxTotal;
+        }
+
         invoiceItems.push(
           this.invoiceItemRepository.create({
             productId: item.productId,
@@ -114,15 +159,13 @@ export class SalesService {
             unitPrice,
             purchasePrice,
             subtotal,
+            taxAmount: itemTaxAmount,
           }),
         );
 
-        const priceBeforeTax = Number((Number(unitPrice) / 1.19).toFixed(2));
-        const itemSubtotal = priceBeforeTax * item.quantity;
-        const itemTax = Number((itemSubtotal * 0.19).toFixed(2));
-        factusTotalAmount += itemSubtotal + itemTax;
+          allItemsTaxData.push(invoiceItemTaxes);
 
-        factusItems.push({
+          factusItems.push({
           codeReference: product.sku || product.id,
           name: product.name,
           quantity: item.quantity,
@@ -130,11 +173,9 @@ export class SalesService {
           price: priceBeforeTax,
           unitMeasureCode: '94',
           standardCode: '999',
-          taxes: [{ code: '01', rate: '19.00' }],
+          taxes: factusTaxes,
         });
       }
-
-      const isElectronic = createDto.isElectronic === true;
 
       // 3. Para electrónicas, llamar Factus API primero
       let factusResponse: any = null;
@@ -178,7 +219,25 @@ export class SalesService {
       const prefix = savedInvoice.isElectronic ? 'FAC' : 'MAN';
       savedInvoice.invoiceNumber = `${prefix}-${String(savedInvoice.sequentialNumber).padStart(6, '0')}`;
 
-      // 6. Para electrónicas, crear la emisión
+      // 6. Guardar InvoiceItemTax para cada item (si tiene impuestos)
+      for (let i = 0; i < savedInvoice.items.length; i++) {
+        const savedItem = savedInvoice.items[i];
+        const itemTaxes = allItemsTaxData[i];
+        if (itemTaxes?.length) {
+          for (const t of itemTaxes) {
+            await queryRunner.manager.save(InvoiceItemTax, {
+              invoiceItem: savedItem,
+              taxId: t.taxId as string,
+              taxCode: t.taxCode as string,
+              taxName: t.taxName as string,
+              taxRate: t.taxRate as number,
+              taxAmount: t.taxAmount as number,
+            });
+          }
+        }
+      }
+
+      // 7. Para electrónicas, crear la emisión
       if (isElectronic && factusResponse?.data) {
         const emission = this.invoiceEmissionRepository.create({
           invoice: savedInvoice,
@@ -217,7 +276,13 @@ export class SalesService {
   async emit(id: string): Promise<Invoice> {
     const invoice = await this.invoiceRepository.findOne({
       where: { id },
-      relations: ['customer', 'items', 'items.product', 'emission'],
+      relations: [
+        'customer',
+        'items',
+        'items.product',
+        'items.product.taxes',
+        'emission',
+      ],
     });
 
     if (!invoice) {
@@ -242,10 +307,33 @@ export class SalesService {
 
     for (const item of invoice.items) {
       const unitPrice = Number(item.unitPrice);
-      const priceBeforeTax = Number((unitPrice / 1.19).toFixed(2));
+      const taxes = item.product?.taxes || [];
+      const totalTaxRate = taxes.reduce(
+        (sum, t) => sum + Number(t.percentage),
+        0,
+      );
+      const priceBeforeTax =
+        totalTaxRate > 0
+          ? Number((unitPrice / (1 + totalTaxRate / 100)).toFixed(2))
+          : unitPrice;
+
       const itemSubtotal = priceBeforeTax * Number(item.quantity);
-      const itemTax = Number((itemSubtotal * 0.19).toFixed(2));
-      factusTotalAmount += itemSubtotal + itemTax;
+      let itemTaxTotal = 0;
+      const factusTaxes: FactusTax[] = [];
+
+      for (const tax of taxes) {
+        const taxAmt = Number(
+          (priceBeforeTax * Number(tax.percentage) / 100).toFixed(2),
+        );
+        itemTaxTotal += taxAmt * Number(item.quantity);
+        factusTaxes.push({
+          code: tax.code,
+          rate: tax.percentage.toFixed(2),
+          isExcluded: false,
+        });
+      }
+
+      factusTotalAmount += itemSubtotal + itemTaxTotal;
 
       factusItems.push({
         codeReference: item.product?.sku || item.productId,
@@ -255,7 +343,7 @@ export class SalesService {
         price: priceBeforeTax,
         unitMeasureCode: '94',
         standardCode: '999',
-        taxes: [{ code: '01', rate: '19.00' }],
+        taxes: factusTaxes,
       });
     }
 
@@ -303,6 +391,42 @@ export class SalesService {
       invoice.isElectronic = true;
       invoice.emission = await queryRunner.manager.save(emission);
       await queryRunner.manager.save(invoice);
+
+      // Persist InvoiceItemTax records for each item
+      for (const item of invoice.items) {
+        const taxes = item.product?.taxes || [];
+        if (taxes.length === 0) continue;
+
+        const unitPrice = Number(item.unitPrice);
+        const totalTaxRate = taxes.reduce(
+          (sum, t) => sum + Number(t.percentage), 0,
+        );
+        const priceBeforeTax =
+          totalTaxRate > 0
+            ? Number((unitPrice / (1 + totalTaxRate / 100)).toFixed(2))
+            : unitPrice;
+
+        let itemTaxAmount = 0;
+        for (const tax of taxes) {
+          const taxAmt = Number(
+            (priceBeforeTax * Number(tax.percentage) / 100).toFixed(2),
+          );
+          itemTaxAmount += taxAmt;
+          await queryRunner.manager.save(InvoiceItemTax, {
+            invoiceItem: item,
+            taxId: tax.id,
+            taxCode: tax.code,
+            taxName: tax.name,
+            taxRate: Number(tax.percentage),
+            taxAmount: taxAmt,
+          });
+        }
+
+        if (item.taxAmount !== itemTaxAmount) {
+          item.taxAmount = itemTaxAmount;
+          await queryRunner.manager.save(item);
+        }
+      }
 
       await queryRunner.commitTransaction();
 
@@ -380,7 +504,13 @@ export class SalesService {
   async findOne(id: string): Promise<Invoice> {
     const invoice = await this.invoiceRepository.findOne({
       where: { id },
-      relations: ['customer', 'items', 'items.product', 'emission'],
+      relations: [
+        'customer',
+        'items',
+        'items.product',
+        'items.invoiceItemTaxes',
+        'emission',
+      ],
     });
 
     if (!invoice) {
