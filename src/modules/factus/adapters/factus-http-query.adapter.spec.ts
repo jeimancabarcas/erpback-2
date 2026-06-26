@@ -21,11 +21,8 @@ describe('FactusHttpQueryAdapter (Tasks 2.1-2.5)', () => {
     const ok = opts.ok !== undefined ? opts.ok : true;
     const status = opts.status || 200;
     const responseBody = opts.responseBody || {
-      data: [],
-      current_page: 1,
-      last_page: 0,
-      per_page: 10,
-      total: 0,
+      status: 'OK',
+      data: { data: [], pagination: { total: 0, current_page: 1, last_page: 0, per_page: 10 } },
     };
 
     (global.fetch as jest.Mock) = jest.fn().mockImplementation(async (url: string) => {
@@ -152,21 +149,26 @@ describe('FactusHttpQueryAdapter (Tasks 2.1-2.5)', () => {
   describe('Task 2.3: Pagination and error handling', () => {
     it('should map Factus snake_case pagination to PaginatedFactusResponse camelCase meta', async () => {
       const factusResponse = {
-        data: [
-          {
-            id: 1,
-            number: 'FAC-001',
-            reference_code: 'REF-001',
-            created_at: '2024-06-01T00:00:00Z',
-            status: '1',
-            total: 1000,
-            customer: { identification: '123', names: 'Test' },
+        status: 'OK',
+        data: {
+          data: [
+            {
+              id: 1,
+              number: 'FAC-001',
+              reference_code: 'REF-001',
+              created_at: '2024-06-01T00:00:00Z',
+              status: '1',
+              total: 1000,
+              customer: { identification: '123', names: 'Test' },
+            },
+          ],
+          pagination: {
+            current_page: 2,
+            last_page: 5,
+            per_page: 10,
+            total: 50,
           },
-        ],
-        current_page: 2,
-        last_page: 5,
-        per_page: 10,
-        total: 50,
+        },
       };
 
       setupFetchMock({ responseBody: factusResponse });
@@ -186,11 +188,8 @@ describe('FactusHttpQueryAdapter (Tasks 2.1-2.5)', () => {
 
     it('should return empty data array when Factus returns no results', async () => {
       const factusResponse = {
-        data: [],
-        current_page: 1,
-        last_page: 0,
-        per_page: 10,
-        total: 0,
+        status: 'OK',
+        data: { data: [], pagination: { total: 0, current_page: 1, last_page: 0, per_page: 10 } },
       };
 
       setupFetchMock({ responseBody: factusResponse });

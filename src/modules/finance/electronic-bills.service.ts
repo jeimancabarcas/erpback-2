@@ -3,6 +3,7 @@ import {
   Inject,
   NotFoundException,
   BadRequestException,
+  ConflictException,
   Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -16,10 +17,7 @@ import type {
   FactusItem,
 } from '../factus/interfaces/factus-invoicing-gateway.interface';
 import { CreateElectronicBillDto } from './dto/create-electronic-bill.dto';
-import { QueryElectronicBillsDto } from './dto/query-electronic-bills.dto';
 import { ElectronicBillResponseDto } from './dto/electronic-bill-response.dto';
-import { ElectronicBillListDto } from './dto/electronic-bill-list.dto';
-import { PaginatedResult } from '../../common/interfaces/paginated-result.interface';
 
 @Injectable()
 export class ElectronicBillsService {
@@ -35,39 +33,6 @@ export class ElectronicBillsService {
     @Inject('IFactusInvoicingGateway')
     private readonly factusGateway: IFactusInvoicingGateway,
   ) {}
-
-  async findAll(
-    query: QueryElectronicBillsDto,
-  ): Promise<PaginatedResult<ElectronicBillListDto>> {
-    const page = query.page ?? 1;
-    const perPage = query.perPage ?? 10;
-    const skip = (page - 1) * perPage;
-
-    const [emissions, total] = await this.emissionRepository.findAndCount({
-      skip,
-      take: perPage,
-      order: { createdAt: 'DESC' },
-    });
-
-    const data: ElectronicBillListDto[] = emissions.map((em) => ({
-      id: em.id,
-      number: em.number,
-      status: em.status,
-      cufe: em.cude || em.cude,
-      invoiceId: em.invoiceId,
-      createdAt: em.createdAt,
-    }));
-
-    return {
-      data,
-      meta: {
-        total,
-        page,
-        lastPage: Math.ceil(total / perPage),
-        limit: perPage,
-      },
-    };
-  }
 
   async create(dto: CreateElectronicBillDto): Promise<ElectronicBillResponseDto> {
     // 1. Build Factus payload from either manual invoice or DTO
@@ -89,6 +54,18 @@ export class ElectronicBillsService {
     let paymentForm = '1';
     let paymentMethodCode = '10';
     let amount: string;
+
+    // Prevent double emission: check if manual invoice already has an electronic emission
+    if (dto.manualInvoiceId) {
+      const existingEmission = await this.emissionRepository.findOne({
+        where: { invoiceId: dto.manualInvoiceId },
+      });
+      if (existingEmission) {
+        throw new ConflictException(
+          `La factura manual ya fue emitida electrónicamente (emisión #${existingEmission.number}).`,
+        );
+      }
+    }
 
     // Resolve manual invoice if provided
     if (dto.manualInvoiceId) {
@@ -284,5 +261,16 @@ export class ElectronicBillsService {
       // No database record created — Factus did not confirm the emission
       throw new BadRequestException(error.message);
     }
+  }
+
+  /** Look up the local invoice ID for a given Factus document number */
+  async findByDocumentNumber(
+    documentNumber: string,
+  ): Promise<{ invoiceId: string | null } | null> {
+    const emission = await this.emissionRepository.findOne({
+      where: { number: documentNumber },
+      select: ['invoiceId'],
+    });
+    return emission ? { invoiceId: emission.invoiceId } : null;
   }
 }

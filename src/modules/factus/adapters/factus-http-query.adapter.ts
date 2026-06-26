@@ -108,9 +108,21 @@ export class FactusHttpQueryAdapter implements IFactusQueryGateway {
   }
 
   private mapPaginatedResponse(raw: any): any {
-    const data = Array.isArray(raw.data) ? raw.data : [];
+    // v2 nested envelope: { status, data: { data: [...], pagination: {...} } }
+    if (raw.data?.pagination) {
+      return {
+        data: Array.isArray(raw.data.data) ? raw.data.data : [],
+        meta: {
+          page: raw.data.pagination.current_page ?? 1,
+          lastPage: raw.data.pagination.last_page ?? 0,
+          limit: raw.data.pagination.per_page ?? 10,
+          total: raw.data.pagination.total ?? 0,
+        },
+      };
+    }
+    // Legacy flat: { data: [...], current_page, last_page, per_page, total }
     return {
-      data,
+      data: Array.isArray(raw.data) ? raw.data : [],
       meta: {
         page: raw.current_page ?? 1,
         lastPage: raw.last_page ?? 0,

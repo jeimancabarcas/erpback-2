@@ -2,14 +2,13 @@ import {
   Controller,
   Post,
   Get,
+  Param,
   Body,
-  Query,
   UseGuards,
   ValidationPipe,
 } from '@nestjs/common';
 import { ElectronicBillsService } from './electronic-bills.service';
 import { CreateElectronicBillDto } from './dto/create-electronic-bill.dto';
-import { QueryElectronicBillsDto } from './dto/query-electronic-bills.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @Controller('finance')
@@ -24,8 +23,9 @@ export class ElectronicBillsController {
     return this.electronicBillsService.create(dto);
   }
 
-  @Get('electronic-bills')
-  findAll(@Query(ValidationPipe) query: QueryElectronicBillsDto) {
-    return this.electronicBillsService.findAll(query);
+  /** Look up local invoice ID by Factus document number (for credit-note creation) */
+  @Get('electronic-bills/by-document/:number')
+  findByDocumentNumber(@Param('number') number: string) {
+    return this.electronicBillsService.findByDocumentNumber(number);
   }
 }

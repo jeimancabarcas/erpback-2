@@ -67,13 +67,11 @@ export class FinanceService {
   ): PaginatedResult<FinanceDocumentDto> {
     const rawData = Array.isArray(response.data) ? response.data : [];
     const data: FinanceDocumentDto[] = rawData.map((item) => ({
+      // Preserve ALL fields from Factus response
+      ...item,
+      // Override with our normalized fields
       id: item.reference_code || item.id,
       number: item.number || item.reference_code || '',
-      clientName: item.customer?.names || item.names || '',
-      clientIdentification: item.customer?.identification || item.identification || '',
-      total: item.total ?? 0,
-      status: String(item.status ?? '0') === '1' ? '1' : '0',
-      createdAt: item.created_at || item.createdAt || '',
       type,
     }));
 
