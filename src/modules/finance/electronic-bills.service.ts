@@ -20,7 +20,6 @@ import { QueryElectronicBillsDto } from './dto/query-electronic-bills.dto';
 import { ElectronicBillResponseDto } from './dto/electronic-bill-response.dto';
 import { ElectronicBillListDto } from './dto/electronic-bill-list.dto';
 import { PaginatedResult } from '../../common/interfaces/paginated-result.interface';
-import { computeFactusItemTaxes } from '../sales/helpers/factus-tax-helper';
 
 @Injectable()
 export class ElectronicBillsService {
@@ -71,14 +70,34 @@ export class ElectronicBillsService {
   }
 
   async create(dto: CreateElectronicBillDto): Promise<ElectronicBillResponseDto> {
-    // 1. Resolve manual invoice linkage
+    // 1. Build Factus payload from either manual invoice or DTO
+    const referenceCode = `FAC-REF-${Date.now()}`;
+    const factusCustomer: FactusCustomer = {
+      identificationDocumentCode: '13',
+      identification: dto.customer.identification,
+      legalOrganizationCode: '2',
+      names: dto.customer.names,
+      address: dto.customer.address || 'calle 1 # 1-1',
+      email: dto.customer.email || 'cliente@correo.com',
+      phone: dto.customer.phone || '1234567890',
+      municipalityCode: '68679',
+    };
+
+    let factusItems: FactusItem[];
     let linkedInvoiceId: string | null = null;
     let warning: string | undefined;
+    let paymentForm = '1';
+    let paymentMethodCode = '10';
+    let amount: string;
 
+    // Resolve manual invoice if provided
     if (dto.manualInvoiceId) {
       const manualInvoice = await this.invoiceRepository.findOne({
         where: { id: dto.manualInvoiceId },
-        relations: ['customer', 'items', 'items.product', 'items.product.taxes'],
+        relations: [
+          'customer', 'items', 'items.product', 'items.product.taxes',
+          'paymentMethod', 'paymentType',
+        ],
       });
 
       if (manualInvoice) {
@@ -96,33 +115,16 @@ export class ElectronicBillsService {
           linkedInvoiceId = dto.manualInvoiceId;
         }
       }
-      // If manualInvoice not found, treat as standalone (linkedInvoiceId stays null)
     }
 
-    // 2. Build Factus payload
-    const referenceCode = `FAC-REF-${Date.now()}`;
-    const factusCustomer: FactusCustomer = {
-      identificationDocumentCode: '13',
-      identification: dto.customer.identification,
-      legalOrganizationCode: '2',
-      names: dto.customer.names,
-      address: dto.customer.address || 'calle 1 # 1-1',
-      email: dto.customer.email || 'cliente@correo.com',
-      phone: dto.customer.phone || '1234567890',
-      municipalityCode: '68679',
-    };
-
-    // Build Factus items with tax computation
-    let factusItems: FactusItem[];
-    let totalAmount = 0;
-
+    // Build items
     if (linkedInvoiceId) {
       // ---------------------------------------------------------------
-      // Path A: Build from manual invoice items with product.taxes
+      // Path A: Use manual invoice data from DB
       // ---------------------------------------------------------------
       const manualInvoice = await this.invoiceRepository.findOne({
         where: { id: linkedInvoiceId },
-        relations: ['items', 'items.product', 'items.product.taxes'],
+        relations: ['items', 'items.product', 'items.product.taxes', 'paymentMethod', 'paymentType'],
       });
 
       if (!manualInvoice) {
@@ -132,11 +134,16 @@ export class ElectronicBillsService {
       }
 
       factusItems = manualInvoice.items.map((item) => {
-        const grossUnitPrice = Number(item.unitPrice);
-        const { priceBeforeTax, factusTaxes } = computeFactusItemTaxes(
-          item.product,
-          grossUnitPrice,
-        );
+        const rawUnitPrice = Number(item.unitPrice);
+        const sellTaxes = (item.product?.taxes ?? []).filter((t) => t.isSell);
+        const totalRate = sellTaxes.reduce((sum, t) => sum + Number(t.percentage), 0);
+        const priceBeforeTax = Math.round(rawUnitPrice / (1 + totalRate / 100) * 100) / 100;
+        const productTaxes = sellTaxes.map((t) => ({
+          code: t.code,
+          rate: Number(t.percentage).toFixed(2),
+          isExcluded: false,
+        }));
+
         return {
           codeReference: item.product?.sku || item.productId,
           name: item.product?.name || 'Producto',
@@ -145,68 +152,80 @@ export class ElectronicBillsService {
           price: priceBeforeTax,
           unitMeasureCode: '94',
           standardCode: '999',
-          taxes: factusTaxes,
+          taxes: productTaxes,
         };
       });
+
+      // Payment details: amount = sum of (net + tax) per item, matching Factus calculation
+      const invoiceItemsTotal = factusItems.reduce((sum, fi) => {
+        const netAmount = fi.price * fi.quantity;
+        const taxAmount = (fi.taxes ?? []).reduce((t, tax) => {
+          if (tax.isExcluded) return t;
+          return t + Math.round(netAmount * Number(tax.rate) / 100 * 100) / 100;
+        }, 0);
+        return sum + Math.round((netAmount + taxAmount) * 100) / 100;
+      }, 0);
+      amount = invoiceItemsTotal.toFixed(2);
+      paymentForm = manualInvoice.paymentType?.code || '1';
+      paymentMethodCode = manualInvoice.paymentMethod?.code || '10';
     } else {
       // ---------------------------------------------------------------
-      // Path B: Build from DTO items, resolving product taxes per item
+      // Path B: Build from DTO
       // ---------------------------------------------------------------
       factusItems = await Promise.all(
         dto.items.map(async (item) => {
+          let productTaxes: { code: string; rate: string; isExcluded: boolean }[] = [];
+          let priceBeforeTax = item.price;
+
           if (item.productId) {
             const product = await this.productRepository.findOne({
               where: { id: item.productId },
               relations: ['taxes'],
             });
-
             if (product) {
-              const { priceBeforeTax, factusTaxes } = computeFactusItemTaxes(
-                product,
-                item.price,
-              );
-              return {
-                codeReference: item.codeReference,
-                name: item.name,
-                quantity: item.quantity,
-                discountRate: item.discountRate ?? 0,
-                price: priceBeforeTax,
-                unitMeasureCode: '94',
-                standardCode: '999',
-                taxes: factusTaxes,
-              };
+              const sellTaxes = (product.taxes ?? []).filter((t) => t.isSell);
+              const totalRate = sellTaxes.reduce((sum, t) => sum + Number(t.percentage), 0);
+              priceBeforeTax = Math.round(item.price / (1 + totalRate / 100) * 100) / 100;
+              productTaxes = sellTaxes.map((t) => ({
+                code: t.code,
+                rate: Number(t.percentage).toFixed(2),
+                isExcluded: false,
+              }));
             }
           }
 
-          // Fallback: no productId or product not found → backward compatible
           return {
             codeReference: item.codeReference,
             name: item.name,
             quantity: item.quantity,
             discountRate: item.discountRate ?? 0,
-            price: item.price,
+            price: priceBeforeTax,
             unitMeasureCode: '94',
             standardCode: '999',
-            taxes: [],
+            taxes: productTaxes,
           };
         }),
       );
-    }
 
-    // Recompute total from factusItems to match Factus's calculation exactly:
-    // total = sum(round(price * quantity + taxes)) for each item
-    totalAmount = Number(
-      factusItems
-        .reduce((sum, fi) => {
+      // Payment details from DTO or Factus-matching calculation
+      if (dto.paymentDetails && dto.paymentDetails.length > 0) {
+        const pd = dto.paymentDetails[0];
+        paymentForm = pd.paymentForm;
+        paymentMethodCode = pd.paymentMethodCode;
+        amount = pd.amount.toFixed(2);
+      } else {
+        // Total matching Factus calculation: sum of (net + tax) per item
+        const itemsTotal = factusItems.reduce((sum, fi) => {
           const netAmount = fi.price * fi.quantity;
           const taxAmount = (fi.taxes ?? []).reduce((t, tax) => {
             if (tax.isExcluded) return t;
             return t + Math.round(netAmount * Number(tax.rate) / 100 * 100) / 100;
           }, 0);
-          return Math.round((sum + netAmount + taxAmount) * 100) / 100;
-        }, 0)
-        .toFixed(2),
-    );
+          return sum + Math.round((netAmount + taxAmount) * 100) / 100;
+        }, 0);
+        amount = itemsTotal.toFixed(2);
+      }
+    }
 
     // 3. Call Factus API — only persist if successful
     try {
@@ -214,9 +233,9 @@ export class ElectronicBillsService {
         referenceCode,
         paymentDetails: [
           {
-            paymentForm: '1',
-            paymentMethodCode: '10',
-            amount: totalAmount.toFixed(2),
+            paymentForm,
+            paymentMethodCode,
+            amount,
           },
         ],
         customer: factusCustomer,
@@ -233,9 +252,11 @@ export class ElectronicBillsService {
         qrUrl: factusResponse.data.qrUrl || undefined,
         publicUrl: factusResponse.data.publicUrl || undefined,
         isValidated: factusResponse.data.isValidated ?? false,
-        validatedAt: factusResponse.data.validatedAt
-          ? new Date(factusResponse.data.validatedAt)
-          : undefined,
+        validatedAt: (() => {
+          if (!factusResponse.data.validatedAt) return undefined;
+          const d = new Date(factusResponse.data.validatedAt);
+          return isNaN(d.getTime()) ? undefined : d;
+        })(),
         numberingRange:
           factusResponse.data.numberingRange || undefined,
         items: factusResponse.data.items || undefined,

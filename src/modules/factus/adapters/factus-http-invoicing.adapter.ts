@@ -82,7 +82,7 @@ export class FactusHttpInvoicingAdapter implements IFactusInvoicingGateway {
     const token = await this.authGateway.getAccessToken();
 
     try {
-      this.logger.log(`Sending POST request to ${endpoint}...`);
+      this.logger.log(`Sending POST request to ${baseUrl}${endpoint}...`);
       this.logger.debug(
         `Payload: ${JSON.stringify(payload, null, 2)}`,
       );

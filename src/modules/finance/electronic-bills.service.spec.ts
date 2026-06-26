@@ -401,7 +401,7 @@ describe('ElectronicBillsService', () => {
         sku: 'SKU-001',
         name: 'Product A',
         taxes: [
-          { id: 'tax-1', code: '01', percentage: 19.0 },
+          { id: 'tax-1', code: '01', percentage: 19.0, isSell: true },
         ],
       });
       factusGateway.createInvoice.mockResolvedValue({
@@ -453,7 +453,7 @@ describe('ElectronicBillsService', () => {
         expect.objectContaining({
           items: expect.arrayContaining([
             expect.objectContaining({
-              price: 119000,
+              price: 119000, // fallback: no product → raw price
               taxes: [],
             }),
           ]),
@@ -515,7 +515,7 @@ describe('ElectronicBillsService', () => {
             sku: 'SKU-001',
             name: 'Product A',
             taxes: [
-              { id: 'tax-1', code: '01', percentage: 19.0 },
+              { id: 'tax-1', code: '01', percentage: 19.0, isSell: true },
             ],
           },
         },
@@ -566,8 +566,8 @@ describe('ElectronicBillsService', () => {
           product: {
             ...manualInvoiceWithTaxes.items[0].product,
             taxes: [
-              { id: 'tax-1', code: '01', percentage: 19.0 },
-              { id: 'tax-2', code: '04', percentage: 8.0 },
+              { id: 'tax-1', code: '01', percentage: 19.0, isSell: true },
+              { id: 'tax-2', code: '04', percentage: 8.0, isSell: true },
             ],
           },
         }],

@@ -82,7 +82,7 @@ export class FactusHttpQueryAdapter implements IFactusQueryGateway {
     const token = await this.authGateway.getAccessToken();
 
     try {
-      this.logger.log(`Sending GET request to ${endpoint}...`);
+      this.logger.log(`Sending GET request to ${baseUrl}${endpoint}...`);
       const response = await fetch(`${baseUrl}${endpoint}`, {
         method: 'GET',
         headers: {
