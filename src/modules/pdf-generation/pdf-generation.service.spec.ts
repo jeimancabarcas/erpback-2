@@ -26,7 +26,6 @@ function makeInvoice(overrides: any = {}): any {
       },
     ],
     creditNotes: [],
-    debitNotes: [],
     createdAt: new Date('2026-06-01'),
     updatedAt: new Date('2026-06-01'),
     ...overrides,
@@ -46,7 +45,7 @@ describe('PdfGenerationService', () => {
 
   it('generates a valid base64 PDF with PDF header and EOF marker', async () => {
     const invoice = makeInvoice();
-    const result = await service.generateInvoicePdf(invoice, [], []);
+    const result = await service.generateInvoicePdf(invoice, []);
 
     expect(typeof result).toBe('string');
 
@@ -57,7 +56,7 @@ describe('PdfGenerationService', () => {
 
   it('contains invoice number as hex-encoded text', async () => {
     const invoice = makeInvoice({ invoiceNumber: 'MAN-00000001' });
-    const result = await service.generateInvoicePdf(invoice, [], [], false);
+    const result = await service.generateInvoicePdf(invoice, [], false);
 
     const decoded = Buffer.from(result, 'base64').toString('latin1');
     expect(decoded.includes(textToHex('MAN-00000001'))).toBe(true);
@@ -65,7 +64,7 @@ describe('PdfGenerationService', () => {
 
   it('contains customer info as hex-encoded text', async () => {
     const invoice = makeInvoice();
-    const result = await service.generateInvoicePdf(invoice, [], [], false);
+    const result = await service.generateInvoicePdf(invoice, [], false);
 
     const decoded = Buffer.from(result, 'base64').toString('latin1');
     expect(decoded.includes(textToHex('Cliente'))).toBe(true);
@@ -86,6 +85,7 @@ describe('PdfGenerationService', () => {
         qrUrl: null,
         publicUrl: null,
         invoiceId: 'inv-1',
+        invoice: invoice,
         items: [],
         createdAt: new Date('2026-06-02'),
         updatedAt: new Date('2026-06-02'),
@@ -94,7 +94,6 @@ describe('PdfGenerationService', () => {
     const result = await service.generateInvoicePdf(
       invoice,
       creditNotes,
-      [],
       false,
     );
 
@@ -103,45 +102,15 @@ describe('PdfGenerationService', () => {
     expect(decoded.includes(textToHex('Notas de Ajuste'))).toBe(true);
   });
 
-  it('includes debit note data when notes are provided', async () => {
-    const invoice = makeInvoice();
-    const debitNotes = [
-      {
-        id: 'dn-1',
-        referenceCode: 'ND-REF-1',
-        noteNumber: 'ND-MAN-001',
-        cude: null,
-        correctionConceptCode: '3',
-        amount: 50,
-        observation: null,
-        qrUrl: null,
-        publicUrl: null,
-        invoiceId: 'inv-1',
-        items: [],
-        createdAt: new Date('2026-06-03'),
-        updatedAt: new Date('2026-06-03'),
-      },
-    ];
-    const result = await service.generateInvoicePdf(
-      invoice,
-      [],
-      debitNotes,
-      false,
-    );
-
-    const decoded = Buffer.from(result, 'base64').toString('latin1');
-    expect(decoded.includes(textToHex('ND-MAN-001'))).toBe(true);
-  });
-
   it('shows empty notes message when no notes are applied', async () => {
     const invoice = makeInvoice();
-    const result = await service.generateInvoicePdf(invoice, [], [], false);
+    const result = await service.generateInvoicePdf(invoice, [], false);
 
     const decoded = Buffer.from(result, 'base64').toString('latin1');
     expect(decoded.includes(textToHex('No se han aplicado'))).toBe(true);
   });
 
-  it('includes correct balance formula values', async () => {
+  it('includes correct balance formula values with credit notes only', async () => {
     const invoice = makeInvoice({ totalAmount: 1000 });
     const creditNotes = [
       {
@@ -154,25 +123,9 @@ describe('PdfGenerationService', () => {
         qrUrl: null,
         publicUrl: null,
         invoiceId: 'inv-1',
+        invoice: invoice,
         items: [],
         referenceCode: 'NC-R',
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      },
-    ];
-    const debitNotes = [
-      {
-        id: 'dn-1',
-        noteNumber: 'ND-1',
-        cude: null,
-        correctionConceptCode: '3',
-        amount: 50,
-        observation: null,
-        qrUrl: null,
-        publicUrl: null,
-        invoiceId: 'inv-1',
-        items: [],
-        referenceCode: 'ND-R',
         createdAt: new Date(),
         updatedAt: new Date(),
       },
@@ -180,15 +133,13 @@ describe('PdfGenerationService', () => {
     const result = await service.generateInvoicePdf(
       invoice,
       creditNotes,
-      debitNotes,
       false,
     );
 
     const decoded = Buffer.from(result, 'base64').toString('latin1');
     expect(decoded.includes(textToHex('$1,000.00'))).toBe(true);
     expect(decoded.includes(textToHex('$200.00'))).toBe(true);
-    expect(decoded.includes(textToHex('$50.00'))).toBe(true);
-    expect(decoded.includes(textToHex('$850.00'))).toBe(true);
+    expect(decoded.includes(textToHex('$800.00'))).toBe(true);
   });
 
   it('includes product names for all items', async () => {
@@ -208,7 +159,7 @@ describe('PdfGenerationService', () => {
         },
       ],
     });
-    const result = await service.generateInvoicePdf(invoice, [], [], false);
+    const result = await service.generateInvoicePdf(invoice, [], false);
 
     const decoded = Buffer.from(result, 'base64').toString('latin1');
     expect(decoded.includes(textToHex('Producto A'))).toBe(true);
@@ -217,7 +168,7 @@ describe('PdfGenerationService', () => {
 
   it('includes section headers as hex in uncompressed stream', async () => {
     const invoice = makeInvoice();
-    const result = await service.generateInvoicePdf(invoice, [], [], false);
+    const result = await service.generateInvoicePdf(invoice, [], false);
 
     const decoded = Buffer.from(result, 'base64').toString('latin1');
     // Search for parts that appear as single hex chunks (pdfkit may split words with kerning)

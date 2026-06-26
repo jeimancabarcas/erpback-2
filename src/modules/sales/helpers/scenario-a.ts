@@ -26,7 +26,7 @@ import { InventoryService } from '../../inventory/inventory.service';
 export class ScenarioAHandler implements ScenarioHandler {
   constructor(private readonly inventoryService: InventoryService) {}
 
-  getType(): 'credit' | 'debit' {
+  getType(): 'credit' {
     return 'credit';
   }
 
@@ -147,21 +147,34 @@ export function buildFactusItem(
     }[];
   },
 ): any {
-  // Compute price before tax using the proportional tax rates
-  const totalTaxRate = taxResult.itemTaxes.reduce(
-    (sum, t) => sum + t.taxRate,
+  const taxMap = new Map<string, { code: string; rate: number; isExcluded: boolean }>();
+  taxResult.itemTaxes.forEach((t) => {
+    const existing = taxMap.get(t.taxCode);
+    if (existing) {
+      existing.rate += t.taxRate;
+    } else {
+      taxMap.set(t.taxCode, {
+        code: t.taxCode,
+        rate: t.taxRate,
+        isExcluded: false,
+      });
+    }
+  });
+  const taxes = Array.from(taxMap.values()).map((t) => ({
+    code: t.code,
+    rate: t.rate.toFixed(2),
+    isExcluded: t.isExcluded,
+  }));
+
+  // Compute price before tax using the deduped tax rates
+  const totalTaxRate = Array.from(taxMap.values()).reduce(
+    (sum, t) => sum + t.rate,
     0,
   );
   const priceBeforeTax =
     totalTaxRate > 0
       ? Number((price / (1 + totalTaxRate / 100)).toFixed(2))
       : price;
-
-  const taxes = taxResult.itemTaxes.map((t) => ({
-    code: t.taxCode,
-    rate: t.taxRate.toFixed(2),
-    isExcluded: false,
-  }));
   return {
     codeReference: invoiceItem.product?.sku || invoiceItem.productId,
     name: invoiceItem.product?.name || 'Producto',

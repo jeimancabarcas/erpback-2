@@ -17,8 +17,15 @@ export class InvoiceElectronicEmission {
   @JoinColumn({ name: 'invoice_id' })
   invoice: Invoice;
 
-  @Column({ name: 'invoice_id' })
-  invoiceId: string;
+  @Column({ name: 'invoice_id', nullable: true })
+  invoiceId: string | null;
+
+  @Column({
+    type: 'enum',
+    enum: ['pending', 'emitted', 'failed'],
+    default: 'pending',
+  })
+  status: 'pending' | 'emitted' | 'failed';
 
   @Column({ type: 'varchar' })
   number: string;

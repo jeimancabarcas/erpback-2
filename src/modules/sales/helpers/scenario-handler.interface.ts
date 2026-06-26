@@ -4,11 +4,11 @@ import { EntityManager } from 'typeorm';
 import { IFactusInvoicingGateway } from '../../factus/interfaces/factus-invoicing-gateway.interface';
 
 // ---------------------------------------------------------------------------
-// Strategy Pattern: Scenario Handlers for Credit/Debit Notes
+// Strategy Pattern: Scenario Handlers for Credit Notes
 //
 // Each scenario handler implements the ScenarioHandler interface and is
-// registered in a strategy map (creditScenarioMap / debitScenarioMap) inside
-// SalesService. The map dispatches to the correct handler based on the DIAN
+// registered in a strategy map (creditScenarioMap) inside SalesService.
+// The map dispatches to the correct handler based on the DIAN
 // correctionConceptCode from the DTO.
 //
 // Handlers share common infrastructure via ScenarioParams:
@@ -18,13 +18,12 @@ import { IFactusInvoicingGateway } from '../../factus/interfaces/factus-invoicin
 //   - factusGateway: Optional Factus gateway for electronic note paths
 //
 // The ScenarioResult returned by each handler is consumed by
-// processCreditNoteWithHandler / processDebitNoteWithHandler which handle
-// Factus payload building (electronic) or local persistence (manual).
+// processCreditNoteWithHandler which handles Factus payload building
+// (electronic) or local persistence (manual).
 //
-// Six concrete handlers cover the business scenarios:
-//   Credit: ScenarioA (partial return), ScenarioB (discount),
-//           ScenarioC (price correction), ScenarioD (total annulment)
-//   Debit:  ScenarioE (financial interest), ScenarioF (undercharge correction)
+// Four concrete handlers cover the business scenarios:
+//   ScenarioA (partial return), ScenarioB (discount),
+//   ScenarioC (price correction), ScenarioD (total annulment)
 // ---------------------------------------------------------------------------
 
 /** Per-item tax breakdown data, mirroring InvoiceItemTax structure. */
@@ -36,10 +35,9 @@ export interface NoteItemTaxData {
   taxAmount: number;
 }
 
-/** A single item ready for persistence in a credit or debit note. */
+/** A single item ready for persistence in a credit note. */
 export interface PreparedNoteItem {
   creditNoteId?: string;
-  debitNoteId?: string;
   codeReference: string;
   name: string;
   quantity: number;
@@ -89,8 +87,8 @@ export interface ScenarioParams {
 export interface ScenarioHandler {
   /** Execute the scenario's business logic and return the result for persistence. */
   execute(params: ScenarioParams): Promise<ScenarioResult>;
-  /** Returns 'credit' for credit note handlers or 'debit' for debit note handlers. */
-  getType(): 'credit' | 'debit';
+  /** Returns 'credit' for credit note handlers. */
+  getType(): 'credit';
 }
 
 /** Factory interface for looking up the correct handler by correction concept code. */

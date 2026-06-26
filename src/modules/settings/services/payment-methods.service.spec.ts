@@ -68,4 +68,26 @@ describe('PaymentMethodsService', () => {
       );
     });
   });
+
+  describe('findByCode', () => {
+    it('should return a payment method when found by code', async () => {
+      const method = { id: 'uuid-10', name: 'Efectivo', code: '10' };
+      mockRepository.findOne.mockResolvedValue(method);
+
+      const result = await service.findByCode('10');
+
+      expect(mockRepository.findOne).toHaveBeenCalledWith({
+        where: { code: '10' },
+      });
+      expect(result).toEqual(method);
+    });
+
+    it('should throw NotFoundException when code does not exist', async () => {
+      mockRepository.findOne.mockResolvedValue(null);
+
+      await expect(service.findByCode('99')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+  });
 });

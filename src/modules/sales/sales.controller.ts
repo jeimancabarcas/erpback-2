@@ -40,6 +40,11 @@ export class SalesController {
     return this.salesService.findAll(queryDto);
   }
 
+  @Get('invoices/search')
+  searchInvoices(@Query('number') number: string) {
+    return this.salesService.searchManualBills(number);
+  }
+
   @Get('invoices/:id')
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.salesService.findOne(id);
@@ -56,14 +61,6 @@ export class SalesController {
     @Body() dto: CreateSalesNoteDto,
   ) {
     return this.salesService.createCreditNote(id, dto);
-  }
-
-  @Post('invoices/:id/debit-note')
-  createDebitNote(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: CreateSalesNoteDto,
-  ) {
-    return this.salesService.createDebitNote(id, dto);
   }
 
   @Get('invoices/:id/notes')
@@ -94,8 +91,4 @@ export class SalesController {
     return this.salesService.downloadAdjustmentNotePdf(id, 'Credit');
   }
 
-  @Get('debit-notes/:id/pdf')
-  downloadDebitNotePdf(@Param('id', ParseUUIDPipe) id: string) {
-    return this.salesService.downloadAdjustmentNotePdf(id, 'Debit');
-  }
 }

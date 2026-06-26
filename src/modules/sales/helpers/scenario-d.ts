@@ -24,7 +24,7 @@ import { InventoryService } from '../../inventory/inventory.service';
 export class ScenarioDHandler implements ScenarioHandler {
   constructor(private readonly inventoryService: InventoryService) {}
 
-  getType(): 'credit' | 'debit' {
+  getType(): 'credit' {
     return 'credit';
   }
 
@@ -95,10 +95,23 @@ export class ScenarioDHandler implements ScenarioHandler {
             ? Number((unitPrice / (1 + totalTaxRate / 100)).toFixed(2))
             : unitPrice;
 
-        const taxes = noteItemTaxes.map((t) => ({
-          code: t.taxCode,
-          rate: t.taxRate.toFixed(2),
-          isExcluded: false,
+        const taxMap = new Map<string, { code: string; rate: number; isExcluded: boolean }>();
+        noteItemTaxes.forEach((t) => {
+          const existing = taxMap.get(t.taxCode);
+          if (existing) {
+            existing.rate += t.taxRate;
+          } else {
+            taxMap.set(t.taxCode, {
+              code: t.taxCode,
+              rate: t.taxRate,
+              isExcluded: false,
+            });
+          }
+        });
+        const taxes = Array.from(taxMap.values()).map((t) => ({
+          code: t.code,
+          rate: t.rate.toFixed(2),
+          isExcluded: t.isExcluded,
         }));
         factusItems.push({
           codeReference: invoiceItem.product?.sku || invoiceItem.productId,

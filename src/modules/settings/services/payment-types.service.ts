@@ -48,4 +48,14 @@ export class PaymentTypesService {
     }
     return entity;
   }
+
+  async findByCode(code: string): Promise<PaymentType> {
+    const entity = await this.repo.findOne({ where: { code } });
+    if (!entity) {
+      throw new NotFoundException(
+        `Tipo de pago con código ${code} no encontrado`,
+      );
+    }
+    return entity;
+  }
 }

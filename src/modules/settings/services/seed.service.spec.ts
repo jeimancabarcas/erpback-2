@@ -4,6 +4,8 @@ import { SeedService } from './seed.service';
 import { Tax } from '../entities/tax.entity';
 import { PaymentMethod } from '../entities/payment-method.entity';
 import { PaymentType } from '../entities/payment-type.entity';
+import { InventoryCategory } from '../../inventory/entities/inventory-category.entity';
+import { Product } from '../../inventory/entities/product.entity';
 
 describe('SeedService', () => {
   let service: SeedService;
@@ -50,7 +52,7 @@ describe('SeedService', () => {
       expect(mockEm.transaction).toHaveBeenCalled();
     });
 
-    it('should truncate all three tables inside the transaction', async () => {
+    it('should truncate all tables inside the transaction', async () => {
       await service.seed();
       expect(mockTransactionalEm.query).toHaveBeenCalledWith(
         `TRUNCATE TABLE "taxes" CASCADE`,
@@ -61,9 +63,18 @@ describe('SeedService', () => {
       expect(mockTransactionalEm.query).toHaveBeenCalledWith(
         `TRUNCATE TABLE "payment_types" CASCADE`,
       );
+      expect(mockTransactionalEm.query).toHaveBeenCalledWith(
+        `TRUNCATE TABLE "products_taxes" CASCADE`,
+      );
+      expect(mockTransactionalEm.query).toHaveBeenCalledWith(
+        `TRUNCATE TABLE "products" CASCADE`,
+      );
+      expect(mockTransactionalEm.query).toHaveBeenCalledWith(
+        `TRUNCATE TABLE "inventory_categories" CASCADE`,
+      );
     });
 
-    it('should insert seed data for all three entities', async () => {
+    it('should insert seed data for all entities', async () => {
       await service.seed();
       expect(mockTransactionalEm.insert).toHaveBeenCalledWith(
         Tax,
@@ -86,14 +97,30 @@ describe('SeedService', () => {
           expect.objectContaining({ name: 'Crédito' }),
         ]),
       );
+      expect(mockTransactionalEm.insert).toHaveBeenCalledWith(
+        InventoryCategory,
+        expect.arrayContaining([
+          expect.objectContaining({ name: 'Analgésicos' }),
+          expect.objectContaining({ name: 'Cardiovascular' }),
+        ]),
+      );
+      expect(mockTransactionalEm.insert).toHaveBeenCalledWith(
+        Product,
+        expect.arrayContaining([
+          expect.objectContaining({ sku: 'ANA-001' }),
+          expect.objectContaining({ sku: 'CAR-003' }),
+        ]),
+      );
     });
 
-    it('should return correct record counts (5 taxes, 6 payment methods, 2 payment types)', async () => {
+    it('should return correct record counts', async () => {
       const result = await service.seed();
       expect(result).toEqual({
         taxes: 5,
         paymentMethods: 6,
         paymentTypes: 2,
+        categories: 10,
+        products: 30,
       });
     });
 

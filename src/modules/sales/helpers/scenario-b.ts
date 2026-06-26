@@ -21,7 +21,7 @@ import { buildFactusItem } from './scenario-a';
  */
 @Injectable()
 export class ScenarioBHandler implements ScenarioHandler {
-  getType(): 'credit' | 'debit' {
+  getType(): 'credit' {
     return 'credit';
   }
 

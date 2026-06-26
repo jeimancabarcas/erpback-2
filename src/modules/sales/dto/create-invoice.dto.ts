@@ -2,9 +2,12 @@ import {
   IsArray,
   IsBoolean,
   IsNotEmpty,
+  IsNumber,
   IsOptional,
   IsString,
   IsUUID,
+  Max,
+  Min,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -41,4 +44,18 @@ export class CreateInvoiceDto {
   @IsBoolean()
   @IsOptional()
   isElectronic?: boolean;
+
+  @IsUUID('all', { message: 'ID de método de pago no válido' })
+  @IsOptional()
+  paymentMethodId?: string;
+
+  @IsUUID('all', { message: 'ID de tipo de pago no válido' })
+  @IsOptional()
+  paymentTypeId?: string;
+
+  @IsNumber()
+  @Min(1)
+  @Max(120)
+  @IsOptional()
+  installments?: number;
 }

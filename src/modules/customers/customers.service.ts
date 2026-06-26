@@ -36,6 +36,10 @@ export class CustomersService {
       customer,
       totalInvoiced: Number(stats?.totalInvoiced) || 0,
       invoiceCount: Number(stats?.invoiceCount) || 0,
+      creditLimit: customer.creditLimit ? Number(customer.creditLimit) : null,
+      currentBalance: Number(customer.currentBalance),
+      creditStatus: customer.creditStatus,
+      paymentTermsDays: customer.paymentTermsDays,
     };
   }
 

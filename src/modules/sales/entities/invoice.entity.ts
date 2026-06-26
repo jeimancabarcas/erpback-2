@@ -10,15 +10,17 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { Customer } from '../../customers/entities/customer.entity';
+import { PaymentMethod } from '../../settings/entities/payment-method.entity';
+import { PaymentType } from '../../settings/entities/payment-type.entity';
 import { InvoiceItem } from './invoice-item.entity';
 import { CreditNote } from './credit-note.entity';
-import { DebitNote } from './debit-note.entity';
 import { InvoiceElectronicEmission } from './invoice-electronic-emission.entity';
 
 export enum InvoiceStatus {
   DRAFT = 'DRAFT',
   PAID = 'PAID',
   CANCELLED = 'CANCELLED',
+  ON_CREDIT = 'ON_CREDIT',
 }
 
 @Entity('invoices')
@@ -42,14 +44,25 @@ export class Invoice {
   @Column({ name: 'customer_id' })
   customerId: string;
 
+  @ManyToOne(() => PaymentMethod, { nullable: true, eager: true })
+  @JoinColumn({ name: 'payment_method_id' })
+  paymentMethod?: PaymentMethod;
+
+  @Column({ name: 'payment_method_id', nullable: true })
+  paymentMethodId?: string;
+
+  @ManyToOne(() => PaymentType, { nullable: true, eager: true })
+  @JoinColumn({ name: 'payment_type_id' })
+  paymentType?: PaymentType;
+
+  @Column({ name: 'payment_type_id', nullable: true })
+  paymentTypeId?: string;
+
   @OneToMany(() => InvoiceItem, (item) => item.invoice, { cascade: true })
   items: InvoiceItem[];
 
   @OneToMany(() => CreditNote, (cn) => cn.invoice)
   creditNotes: CreditNote[];
-
-  @OneToMany(() => DebitNote, (dn) => dn.invoice)
-  debitNotes: DebitNote[];
 
   @Column({ type: 'decimal', precision: 12, scale: 2, default: 0 })
   totalAmount: number;
@@ -71,6 +84,9 @@ export class Invoice {
 
   @Column({ type: 'text', nullable: true })
   notes: string;
+
+  @Column({ name: 'installments', type: 'int', default: 1, nullable: true })
+  installments?: number;
 
   @Column({ name: 'factus_reference_code', type: 'varchar', nullable: true })
   factusReferenceCode?: string;

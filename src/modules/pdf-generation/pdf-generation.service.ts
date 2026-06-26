@@ -3,14 +3,12 @@ import { Injectable } from '@nestjs/common';
 const PDFDocument = require('pdfkit');
 import { Invoice } from '../sales/entities/invoice.entity';
 import { CreditNote } from '../sales/entities/credit-note.entity';
-import { DebitNote } from '../sales/entities/debit-note.entity';
 
 @Injectable()
 export class PdfGenerationService {
   generateInvoicePdf(
     invoice: Invoice,
     creditNotes: CreditNote[],
-    debitNotes: DebitNote[],
     compress = true,
   ): Promise<string> {
     return new Promise((resolve, reject) => {
@@ -30,8 +28,8 @@ export class PdfGenerationService {
 
       this.buildHeader(doc, invoice);
       this.buildItemsTable(doc, invoice);
-      this.buildAppliedNotesSection(doc, creditNotes, debitNotes);
-      this.buildNetBalance(doc, invoice, creditNotes, debitNotes);
+      this.buildAppliedNotesSection(doc, creditNotes);
+      this.buildNetBalance(doc, invoice, creditNotes);
 
       doc.end();
     });
@@ -164,18 +162,12 @@ export class PdfGenerationService {
   private buildAppliedNotesSection(
     doc: PDFKit.PDFDocument,
     creditNotes: CreditNote[],
-    debitNotes: DebitNote[],
   ): void {
     doc.fontSize(12).font('Helvetica-Bold');
     doc.text('Notas de Ajuste Aplicadas');
     doc.moveDown(0.5);
 
-    const allNotes: { type: string; note: CreditNote | DebitNote }[] = [
-      ...creditNotes.map((n) => ({ type: 'credit' as const, note: n })),
-      ...debitNotes.map((n) => ({ type: 'debit' as const, note: n })),
-    ];
-
-    if (allNotes.length === 0) {
+    if (creditNotes.length === 0) {
       doc.fontSize(10).font('Helvetica');
       doc.text('No se han aplicado notas de ajuste');
       doc.moveDown(1.5);
@@ -194,7 +186,7 @@ export class PdfGenerationService {
     doc.moveTo(50, doc.y).lineTo(545, doc.y).stroke('#cccccc');
     doc.moveDown(0.2);
 
-    for (const { type, note } of allNotes) {
+    for (const note of creditNotes) {
       const rowY = doc.y;
 
       if (rowY > 700) {
@@ -207,8 +199,7 @@ export class PdfGenerationService {
       const concept = (note as any).correctionConceptCode || 'N/A';
       const amount = Number(note.amount);
       const formattedAmount = this.formatCurrency(amount);
-      const sign = type === 'credit' ? '-' : '+';
-      const amountLabel = `${sign}${formattedAmount}`;
+      const amountLabel = `-${formattedAmount}`;
 
       doc.font('Helvetica').fontSize(9);
       doc.text(noteNumber, colX[0], rowY, { width: 120 });
@@ -234,7 +225,6 @@ export class PdfGenerationService {
     doc: PDFKit.PDFDocument,
     invoice: Invoice,
     creditNotes: CreditNote[],
-    debitNotes: DebitNote[],
   ): void {
     doc.moveTo(50, doc.y).lineTo(545, doc.y).stroke('#cccccc');
     doc.moveDown(0.5);
@@ -244,21 +234,16 @@ export class PdfGenerationService {
       (sum, cn) => sum + Number(cn.amount),
       0,
     );
-    const debitsTotal = debitNotes.reduce(
-      (sum, dn) => sum + Number(dn.amount),
-      0,
-    );
-    const currentBalance = originalTotal - creditsTotal + debitsTotal;
+    const currentBalance = originalTotal - creditsTotal;
 
     doc.fontSize(10).font('Helvetica');
     doc.text(`Total Original: ${this.formatCurrency(originalTotal)}`);
     doc.text(`Créditos: -${this.formatCurrency(creditsTotal)}`);
-    doc.text(`Débitos: +${this.formatCurrency(debitsTotal)}`);
 
     doc.moveDown(0.3);
     doc.font('Helvetica-Bold').fontSize(11);
     doc.text(
-      `${this.formatCurrency(originalTotal)} - ${this.formatCurrency(creditsTotal)} + ${this.formatCurrency(debitsTotal)} = ${this.formatCurrency(currentBalance)}`,
+      `${this.formatCurrency(originalTotal)} - ${this.formatCurrency(creditsTotal)} = ${this.formatCurrency(currentBalance)}`,
     );
 
     doc.moveDown(1);

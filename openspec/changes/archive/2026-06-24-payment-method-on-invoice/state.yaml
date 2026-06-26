@@ -1,0 +1,32 @@
+change: payment-method-on-invoice
+date: 2026-06-24
+status: archived
+
+summary: >
+  Added payment method (PaymentMethod) and payment form (PaymentType) to sales invoices.
+  Backend: FK columns on Invoice entity (paymentMethodId, paymentTypeId), dynamic Factus
+  payload resolution via resolvePaymentConfig(), 4 hardcoded sites replaced. Frontend:
+  two ui-select dropdowns in the sale form modal, data loaded from /settings endpoints.
+
+backend:
+  files:
+    - src/modules/sales/entities/invoice.entity.ts (paymentMethodId/paymentTypeId FK + relations)
+    - src/modules/sales/dto/create-invoice.dto.ts (optional UUID fields)
+    - src/modules/sales/sales.module.ts (imports SettingsModule)
+    - src/modules/sales/sales.service.ts (resolvePaymentConfig, 4 Factus payload sites)
+    - src/modules/settings/services/payment-methods.service.ts (findByCode)
+    - src/modules/settings/services/payment-types.service.ts (findByCode)
+  tests_passing: 96
+
+frontend:
+  files:
+    - src/app/models/invoice.model.ts (paymentMethodId/paymentTypeId in CreateInvoiceDto)
+    - src/app/components/molecules/sale-form/sale-form.component.ts (ui-select dropdowns, submit, init)
+  notes: Frontend tests have pre-existing TestBed init failures (unrelated)
+
+known_issues:
+  - No migration file (relies on TypeORM synchronize)
+  - No E2E tests for payment flow
+  - 4 hardcoded initializers remain as dead code (overridden before use)
+  - No DTO validation spec
+  - No apply-progress.md (TDD protocol)

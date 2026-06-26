@@ -49,7 +49,6 @@ export class CreateSalesNoteItemDto {
   /**
    * Maps to the DIAN correctionConceptCode that determines which scenario handler is invoked.
    * For credit notes: '1'/'5' → A (partial return), '3' → B (discount), '4' → C (price correction), '2' → D (total annulment)
-   * For debit notes: '1' → E (financial interest), '2'/'3'/'4' → F (undercharge correction)
    * This field is informational; the actual routing happens via `CreateSalesNoteDto.correctionConceptCode`.
    */
   @IsString()

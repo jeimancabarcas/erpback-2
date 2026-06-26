@@ -4,21 +4,19 @@ import { DataSource } from 'typeorm';
 import { SalesService } from './sales.service';
 import { Invoice, InvoiceStatus } from './entities/invoice.entity';
 import { InvoiceItem } from './entities/invoice-item.entity';
+import { Customer } from '../customers/entities/customer.entity';
 import { InvoiceElectronicEmission } from './entities/invoice-electronic-emission.entity';
 import { CreditNote } from './entities/credit-note.entity';
-import { DebitNote } from './entities/debit-note.entity';
 import { CreditNoteItem } from './entities/credit-note-item.entity';
-import { DebitNoteItem } from './entities/debit-note-item.entity';
 import { CreditNoteItemTax } from './entities/credit-note-item-tax.entity';
-import { DebitNoteItemTax } from './entities/debit-note-item-tax.entity';
 import { InventoryService } from '../inventory/inventory.service';
 import { PdfGenerationService } from '../pdf-generation/pdf-generation.service';
+import { PaymentMethodsService } from '../settings/services/payment-methods.service';
+import { PaymentTypesService } from '../settings/services/payment-types.service';
 import { ScenarioAHandler } from './helpers/scenario-a';
 import { ScenarioBHandler } from './helpers/scenario-b';
 import { ScenarioCHandler } from './helpers/scenario-c';
 import { ScenarioDHandler } from './helpers/scenario-d';
-import { ScenarioEHandler } from './helpers/scenario-e';
-import { ScenarioFHandler } from './helpers/scenario-f';
 
 // ---------------------------------------------------------------------------
 // Sequential number generator for mock identity column
@@ -53,7 +51,6 @@ function repoMock(findAndCountResult?: [any[], number]) {
 function makeInvoice(
   overrides: Partial<Invoice> & {
     creditNotes?: Partial<CreditNote>[];
-    debitNotes?: Partial<DebitNote>[];
   } = {},
 ): Invoice {
   return {
@@ -68,7 +65,6 @@ function makeInvoice(
     notes: null as any,
     items: [],
     creditNotes: [],
-    debitNotes: [],
     isElectronic: false,
     emission: undefined,
     createdAt: new Date(),
@@ -86,6 +82,7 @@ function stubCustomer(overrides: any = {}) {
     email: 'test@test.com',
     address: 'calle 1 # 1-1',
     phone: '1234567890',
+    currentBalance: 0,
     ...overrides,
   };
 }
@@ -120,14 +117,11 @@ describe('SalesService.findAll — netTotal computation', () => {
           useValue: repoMock(),
         },
         { provide: getRepositoryToken(CreditNote), useValue: repoMock() },
-        { provide: getRepositoryToken(DebitNote), useValue: repoMock() },
         { provide: getRepositoryToken(CreditNoteItem), useValue: repoMock() },
-        { provide: getRepositoryToken(DebitNoteItem), useValue: repoMock() },
         {
           provide: getRepositoryToken(CreditNoteItemTax),
           useValue: repoMock(),
         },
-        { provide: getRepositoryToken(DebitNoteItemTax), useValue: repoMock() },
         { provide: 'IFactusInvoicingGateway', useValue: {} },
         {
           provide: InventoryService,
@@ -142,18 +136,17 @@ describe('SalesService.findAll — netTotal computation', () => {
         { provide: ScenarioBHandler, useValue: {} },
         { provide: ScenarioCHandler, useValue: {} },
         { provide: ScenarioDHandler, useValue: {} },
-        { provide: ScenarioEHandler, useValue: {} },
-        { provide: ScenarioFHandler, useValue: {} },
+        { provide: PaymentMethodsService, useValue: { findOne: jest.fn().mockResolvedValue({ code: '10' }), findByCode: jest.fn().mockResolvedValue({ code: '10' }) } },
+        { provide: PaymentTypesService, useValue: { findOne: jest.fn().mockResolvedValue({ code: '1' }), findByCode: jest.fn().mockResolvedValue({ code: '1' }) } },
       ],
     }).compile();
     service = mod.get(SalesService);
   }
 
-  it('a) netTotal equals totalAmount when no credit/debit notes', async () => {
+  it('a) netTotal equals totalAmount when no credit notes', async () => {
     const inv = makeInvoice({
       totalAmount: 1000,
       creditNotes: [],
-      debitNotes: [],
     });
     await build([inv]);
     const r = await service.findAll({ page: 1, limit: 10 });
@@ -164,33 +157,10 @@ describe('SalesService.findAll — netTotal computation', () => {
     const inv = makeInvoice({
       totalAmount: 1000,
       creditNotes: [{ amount: 200 } as CreditNote],
-      debitNotes: [],
     });
     await build([inv]);
     const r = await service.findAll({ page: 1, limit: 10 });
     expect(r.data[0]).toHaveProperty('netTotal', 800);
-  });
-
-  it('c) netTotal = totalAmount + debitNote.amount', async () => {
-    const inv = makeInvoice({
-      totalAmount: 1000,
-      creditNotes: [],
-      debitNotes: [{ amount: 150 } as DebitNote],
-    });
-    await build([inv]);
-    const r = await service.findAll({ page: 1, limit: 10 });
-    expect(r.data[0]).toHaveProperty('netTotal', 1150);
-  });
-
-  it('d) netTotal combining credit and debit notes (1000-200+150=950)', async () => {
-    const inv = makeInvoice({
-      totalAmount: 1000,
-      creditNotes: [{ amount: 200 } as CreditNote],
-      debitNotes: [{ amount: 150 } as DebitNote],
-    });
-    await build([inv]);
-    const r = await service.findAll({ page: 1, limit: 10 });
-    expect(r.data[0]).toHaveProperty('netTotal', 950);
   });
 });
 
@@ -207,6 +177,21 @@ describe('SalesService — entity defaults', () => {
   it('default isElectronic is false', () => {
     expect(makeInvoice({ isElectronic: false }).isElectronic).toBe(false);
   });
+
+  it('invoice entity accepts optional paymentMethodId and paymentTypeId', () => {
+    const inv = makeInvoice({
+      paymentMethodId: 'pm-uuid',
+      paymentTypeId: 'pt-uuid',
+    });
+    expect(inv.paymentMethodId).toBe('pm-uuid');
+    expect(inv.paymentTypeId).toBe('pt-uuid');
+  });
+
+  it('invoice entity defaults payment fields to undefined when omitted', () => {
+    const inv = makeInvoice({});
+    expect(inv.paymentMethodId).toBeUndefined();
+    expect(inv.paymentTypeId).toBeUndefined();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -217,6 +202,7 @@ describe('SalesService.create() — sequential numbering', () => {
   let factusGateway: any;
   let inventorySvc: any;
   let queryRunner: any;
+  let paymentTypesServiceMock: any;
 
   /**
    * Build fresh module with a queryRunner manager that simulates
@@ -230,6 +216,10 @@ describe('SalesService.create() — sequential numbering', () => {
         .mockResolvedValue({ data: { number: 'SETP990001' } }),
     };
     inventorySvc = { consumeStock: jest.fn().mockResolvedValue(0) };
+    paymentTypesServiceMock = {
+      findOne: jest.fn().mockResolvedValue({ code: '1' }),
+      findByCode: jest.fn().mockResolvedValue({ code: '1' }),
+    };
 
     queryRunner = {
       connect: jest.fn().mockResolvedValue(undefined),
@@ -284,14 +274,11 @@ describe('SalesService.create() — sequential numbering', () => {
           useValue: repoMock(),
         },
         { provide: getRepositoryToken(CreditNote), useValue: repoMock() },
-        { provide: getRepositoryToken(DebitNote), useValue: repoMock() },
         { provide: getRepositoryToken(CreditNoteItem), useValue: repoMock() },
-        { provide: getRepositoryToken(DebitNoteItem), useValue: repoMock() },
         {
           provide: getRepositoryToken(CreditNoteItemTax),
           useValue: repoMock(),
         },
-        { provide: getRepositoryToken(DebitNoteItemTax), useValue: repoMock() },
         { provide: 'IFactusInvoicingGateway', useValue: factusGateway },
         {
           provide: InventoryService,
@@ -323,8 +310,11 @@ describe('SalesService.create() — sequential numbering', () => {
               restoreStock: jest.fn().mockResolvedValue(0),
             } as any),
         },
-        { provide: ScenarioEHandler, useFactory: () => new ScenarioEHandler() },
-        { provide: ScenarioFHandler, useFactory: () => new ScenarioFHandler() },
+        { provide: PaymentMethodsService, useValue: { findOne: jest.fn().mockResolvedValue({ code: '10' }), findByCode: jest.fn().mockResolvedValue({ code: '10' }) } },
+        {
+          provide: PaymentTypesService,
+          useValue: paymentTypesServiceMock,
+        },
       ],
     }).compile();
     service = mod.get(SalesService);
@@ -386,6 +376,67 @@ describe('SalesService.create() — sequential numbering', () => {
     expect(first.invoiceNumber).toBe('MAN-000001');
     const second = await service.create({ ...baseDto, isElectronic: false });
     expect(second.invoiceNumber).toBe('MAN-000002');
+  });
+
+  it('credit payment type (code 2) sets ON_CREDIT status and increments customer currentBalance', async () => {
+    await build();
+    paymentTypesServiceMock.findOne.mockResolvedValue({ code: '2' });
+
+    const r = await service.create({
+      ...baseDto,
+      paymentTypeId: 'credit-payment-type-id',
+      isElectronic: false,
+    });
+    expect(r.status).toBe('ON_CREDIT');
+
+    // Customer balance should have been incremented: 0 + 100 (1 item × sellingPrice 100)
+    expect(queryRunner.manager.save).toHaveBeenCalledWith(
+      Customer,
+      expect.objectContaining({ currentBalance: 100 }),
+    );
+  });
+
+  it('credit payment type (code 2) increments customer currentBalance by invoice totalAmount', async () => {
+    await build();
+    paymentTypesServiceMock.findOne.mockResolvedValue({ code: '2' });
+
+    // Use 3 items to verify the balance matches totalAmount, not a fixed value
+    const dto = {
+      ...baseDto,
+      items: [
+        { productId: 'prod-1', quantity: 3 },
+      ],
+      paymentTypeId: 'credit-payment-type-id',
+      isElectronic: false,
+    };
+
+    await service.create(dto);
+
+    // 3 × 100 = 300
+    expect(queryRunner.manager.save).toHaveBeenCalledWith(
+      Customer,
+      expect.objectContaining({ currentBalance: 300 }),
+    );
+  });
+
+  it('cash payment type (code 1) sets PAID status and does NOT update customer balance', async () => {
+    await build();
+    paymentTypesServiceMock.findOne.mockResolvedValue({ code: '1' });
+
+    const r = await service.create({ ...baseDto, paymentTypeId: 'cash-payment-type-id', isElectronic: false });
+    expect(r.status).toBe('PAID');
+
+    // Save should NOT have been called with a Customer entity (balance unchanged)
+    const saveWithCustomer = queryRunner.manager.save.mock.calls.filter(
+      ([first, second]) => second?.currentBalance !== undefined,
+    );
+    expect(saveWithCustomer.length).toBe(0);
+  });
+
+  it('no payment type defaults to PAID status', async () => {
+    await build();
+    const r = await service.create({ ...baseDto, isElectronic: false });
+    expect(r.status).toBe('PAID');
   });
 
   // ---- Tax calculation in create() ----
@@ -526,7 +577,6 @@ describe('SalesService — manual invoice paths', () => {
   let factusGateway: any;
   let pdfService: any;
   let creditNoteRepo: any;
-  let debitNoteRepo: any;
   let emissionRepo: any;
   let invoiceRepo: any;
   let queryRunner: any;
@@ -562,7 +612,6 @@ describe('SalesService — manual invoice paths', () => {
       status: InvoiceStatus.PAID,
       notes: null,
       creditNotes: [],
-      debitNotes: [],
       createdAt: new Date(),
       updatedAt: new Date(),
       customerId: 'cust-1',
@@ -612,9 +661,6 @@ describe('SalesService — manual invoice paths', () => {
       createCreditNote: jest
         .fn()
         .mockResolvedValue({ data: { number: 'NC-001', cude: 'cude-1' } }),
-      createDebitNote: jest
-        .fn()
-        .mockResolvedValue({ data: { number: 'ND-001', cude: 'cude-1' } }),
       downloadInvoicePdf: jest.fn().mockResolvedValue({
         pdfBase64Encoded: 'JVBERi0xLjc=',
         fileName: 'invoice.pdf',
@@ -642,24 +688,6 @@ describe('SalesService — manual invoice paths', () => {
         return Promise.resolve(null);
       }),
       create: jest.fn((d: any) => ({ ...d, id: 'cn-new' })),
-      save: jest.fn((e: any) => Promise.resolve(e)),
-    };
-    debitNoteRepo = {
-      ...repoMock(),
-      find: jest.fn().mockResolvedValue([]),
-      findOne: jest.fn().mockImplementation((opts: any) => {
-        if (opts?.where?.id)
-          return Promise.resolve({
-            id: opts.where.id,
-            items: [],
-            noteNumber: 'ND-MAN-MAN-000001-1',
-            cude: null,
-            qrUrl: null,
-            publicUrl: null,
-          });
-        return Promise.resolve(null);
-      }),
-      create: jest.fn((d: any) => ({ ...d, id: 'dn-new' })),
       save: jest.fn((e: any) => Promise.resolve(e)),
     };
     emissionRepo = {
@@ -719,14 +747,11 @@ describe('SalesService — manual invoice paths', () => {
           useValue: emissionRepo,
         },
         { provide: getRepositoryToken(CreditNote), useValue: creditNoteRepo },
-        { provide: getRepositoryToken(DebitNote), useValue: debitNoteRepo },
         { provide: getRepositoryToken(CreditNoteItem), useValue: repoMock() },
-        { provide: getRepositoryToken(DebitNoteItem), useValue: repoMock() },
         {
           provide: getRepositoryToken(CreditNoteItemTax),
           useValue: repoMock(),
         },
-        { provide: getRepositoryToken(DebitNoteItemTax), useValue: repoMock() },
         { provide: 'IFactusInvoicingGateway', useValue: factusGateway },
         {
           provide: InventoryService,
@@ -758,8 +783,8 @@ describe('SalesService — manual invoice paths', () => {
               restoreStock: jest.fn().mockResolvedValue(0),
             } as any),
         },
-        { provide: ScenarioEHandler, useFactory: () => new ScenarioEHandler() },
-        { provide: ScenarioFHandler, useFactory: () => new ScenarioFHandler() },
+        { provide: PaymentMethodsService, useValue: { findOne: jest.fn().mockResolvedValue({ code: '10' }), findByCode: jest.fn().mockResolvedValue({ code: '10' }) } },
+        { provide: PaymentTypesService, useValue: { findOne: jest.fn().mockResolvedValue({ code: '1' }), findByCode: jest.fn().mockResolvedValue({ code: '1' }) } },
       ],
     }).compile();
     service = mod.get(SalesService);
@@ -775,7 +800,6 @@ describe('SalesService — manual invoice paths', () => {
         id: 'inv-manual',
         invoiceNumber: 'MAN-000001',
       }),
-      [],
       [],
     );
     expect(r.fileName).toContain('historial.pdf');
@@ -1015,14 +1039,11 @@ describe('SalesService — manual invoice paths', () => {
           useValue: emissionRepo,
         },
         { provide: getRepositoryToken(CreditNote), useValue: creditNoteRepo },
-        { provide: getRepositoryToken(DebitNote), useValue: debitNoteRepo },
         { provide: getRepositoryToken(CreditNoteItem), useValue: repoMock() },
-        { provide: getRepositoryToken(DebitNoteItem), useValue: repoMock() },
         {
           provide: getRepositoryToken(CreditNoteItemTax),
           useValue: repoMock(),
         },
-        { provide: getRepositoryToken(DebitNoteItemTax), useValue: repoMock() },
         { provide: 'IFactusInvoicingGateway', useValue: factusGateway },
         {
           provide: InventoryService,
@@ -1052,8 +1073,8 @@ describe('SalesService — manual invoice paths', () => {
               restoreStock: jest.fn().mockResolvedValue(0),
             } as any),
         },
-        { provide: ScenarioEHandler, useFactory: () => new ScenarioEHandler() },
-        { provide: ScenarioFHandler, useFactory: () => new ScenarioFHandler() },
+        { provide: PaymentMethodsService, useValue: { findOne: jest.fn().mockResolvedValue({ code: '10' }), findByCode: jest.fn().mockResolvedValue({ code: '10' }) } },
+        { provide: PaymentTypesService, useValue: { findOne: jest.fn().mockResolvedValue({ code: '1' }), findByCode: jest.fn().mockResolvedValue({ code: '1' }) } },
       ],
     }).compile();
     const svc = mod.get(SalesService);
@@ -1146,14 +1167,11 @@ describe('SalesService — manual invoice paths', () => {
           useValue: emissionRepo,
         },
         { provide: getRepositoryToken(CreditNote), useValue: creditNoteRepo },
-        { provide: getRepositoryToken(DebitNote), useValue: debitNoteRepo },
         { provide: getRepositoryToken(CreditNoteItem), useValue: repoMock() },
-        { provide: getRepositoryToken(DebitNoteItem), useValue: repoMock() },
         {
           provide: getRepositoryToken(CreditNoteItemTax),
           useValue: repoMock(),
         },
-        { provide: getRepositoryToken(DebitNoteItemTax), useValue: repoMock() },
         { provide: 'IFactusInvoicingGateway', useValue: factusGateway },
         {
           provide: InventoryService,
@@ -1183,46 +1201,14 @@ describe('SalesService — manual invoice paths', () => {
               restoreStock: jest.fn().mockResolvedValue(0),
             } as any),
         },
-        { provide: ScenarioEHandler, useFactory: () => new ScenarioEHandler() },
-        { provide: ScenarioFHandler, useFactory: () => new ScenarioFHandler() },
+        { provide: PaymentMethodsService, useValue: { findOne: jest.fn().mockResolvedValue({ code: '10' }), findByCode: jest.fn().mockResolvedValue({ code: '10' }) } },
+        { provide: PaymentTypesService, useValue: { findOne: jest.fn().mockResolvedValue({ code: '1' }), findByCode: jest.fn().mockResolvedValue({ code: '1' }) } },
       ],
     }).compile();
     const svc = mod.get(SalesService);
     await expect(
       svc.createCreditNote('inv-cancel', { correctionConceptCode: '1' } as any),
     ).rejects.toThrow('anuladas');
-  });
-
-  // ---- createDebitNote ----
-
-  it('createDebitNote for manual invoice creates local note (ScenarioF)', async () => {
-    // ScenarioF requires price > original (500)
-    const dto = {
-      correctionConceptCode: '2',
-      items: [{ codeReference: 'SKU-001', quantity: 1, price: 600 }],
-    };
-    const r = await service.createDebitNote('inv-manual', dto);
-    expect(factusGateway.createDebitNote).not.toHaveBeenCalled();
-    expect((r as any).noteNumber).toContain('ND-MAN');
-  });
-
-  it('createDebitNote for manual does not call Factus API (ScenarioF)', async () => {
-    const dto = {
-      correctionConceptCode: '2',
-      items: [{ codeReference: 'SKU-001', quantity: 1, price: 600 }],
-    };
-    await service.createDebitNote('inv-manual', dto);
-    expect(factusGateway.createDebitNote).not.toHaveBeenCalled();
-  });
-
-  it('createDebitNote for electronic calls Factus (ScenarioE)', async () => {
-    // ScenarioE: financial interest — virtual item with price (no productId)
-    const dto = {
-      correctionConceptCode: '1',
-      items: [{ codeReference: 'FIN-INT', quantity: 1, price: 100 }],
-    };
-    await service.createDebitNote('inv-electronic', dto);
-    expect(factusGateway.createDebitNote).toHaveBeenCalledTimes(1);
   });
 
   // ---- isElectronic filter ----
@@ -1259,7 +1245,6 @@ describe('SalesService — guard: electronic note for manual invoice', () => {
   let service: SalesService;
   let factusGateway: any;
   let creditNoteRepo: any;
-  let debitNoteRepo: any;
   let emissionRepo: any;
   let invoiceRepo: any;
   let queryRunner: any;
@@ -1296,7 +1281,6 @@ describe('SalesService — guard: electronic note for manual invoice', () => {
       status: InvoiceStatus.PAID,
       notes: null,
       creditNotes: [],
-      debitNotes: [],
       createdAt: new Date(),
       updatedAt: new Date(),
       customerId: 'cust-1',
@@ -1328,9 +1312,6 @@ describe('SalesService — guard: electronic note for manual invoice', () => {
       createCreditNote: jest
         .fn()
         .mockResolvedValue({ data: { number: 'NC-001', cude: 'cude-1' } }),
-      createDebitNote: jest
-        .fn()
-        .mockResolvedValue({ data: { number: 'ND-001', cude: 'cude-1' } }),
       downloadInvoicePdf: jest.fn(),
       downloadAdjustmentNotePdf: jest.fn(),
     };
@@ -1355,24 +1336,6 @@ describe('SalesService — guard: electronic note for manual invoice', () => {
         return Promise.resolve(null);
       }),
       create: jest.fn((d: any) => ({ ...d, id: 'cn-new' })),
-      save: jest.fn((e: any) => Promise.resolve(e)),
-    };
-    debitNoteRepo = {
-      ...repoMock(),
-      find: jest.fn().mockResolvedValue([]),
-      findOne: jest.fn().mockImplementation((opts: any) => {
-        if (opts?.where?.id)
-          return Promise.resolve({
-            id: opts.where.id,
-            items: [],
-            noteNumber: 'ND-MAN-MAN-000001-1',
-            cude: null,
-            qrUrl: null,
-            publicUrl: null,
-          });
-        return Promise.resolve(null);
-      }),
-      create: jest.fn((d: any) => ({ ...d, id: 'dn-new' })),
       save: jest.fn((e: any) => Promise.resolve(e)),
     };
     emissionRepo = {
@@ -1429,14 +1392,11 @@ describe('SalesService — guard: electronic note for manual invoice', () => {
           useValue: emissionRepo,
         },
         { provide: getRepositoryToken(CreditNote), useValue: creditNoteRepo },
-        { provide: getRepositoryToken(DebitNote), useValue: debitNoteRepo },
         { provide: getRepositoryToken(CreditNoteItem), useValue: repoMock() },
-        { provide: getRepositoryToken(DebitNoteItem), useValue: repoMock() },
         {
           provide: getRepositoryToken(CreditNoteItemTax),
           useValue: repoMock(),
         },
-        { provide: getRepositoryToken(DebitNoteItemTax), useValue: repoMock() },
         { provide: 'IFactusInvoicingGateway', useValue: factusGateway },
         {
           provide: InventoryService,
@@ -1468,8 +1428,8 @@ describe('SalesService — guard: electronic note for manual invoice', () => {
               restoreStock: jest.fn().mockResolvedValue(0),
             } as any),
         },
-        { provide: ScenarioEHandler, useFactory: () => new ScenarioEHandler() },
-        { provide: ScenarioFHandler, useFactory: () => new ScenarioFHandler() },
+        { provide: PaymentMethodsService, useValue: { findOne: jest.fn().mockResolvedValue({ code: '10' }), findByCode: jest.fn().mockResolvedValue({ code: '10' }) } },
+        { provide: PaymentTypesService, useValue: { findOne: jest.fn().mockResolvedValue({ code: '1' }), findByCode: jest.fn().mockResolvedValue({ code: '1' }) } },
       ],
     }).compile();
     service = mod.get(SalesService);
@@ -1499,19 +1459,6 @@ describe('SalesService — guard: electronic note for manual invoice', () => {
     );
   });
 
-  it('createDebitNote: rejects electronic note for manual invoice', async () => {
-    const dto = {
-      correctionConceptCode: '1',
-      isElectronic: true,
-      items: makeItemsForScenario(),
-    };
-    await expect(
-      service.createDebitNote('inv-manual', dto as any),
-    ).rejects.toThrow(
-      'electrónicas solo pueden emitirse para facturas electrónicas',
-    );
-  });
-
   it('createCreditNote: allows manual note for manual invoice', async () => {
     const dto = {
       correctionConceptCode: '1',
@@ -1523,18 +1470,6 @@ describe('SalesService — guard: electronic note for manual invoice', () => {
     expect(factusGateway.createCreditNote).not.toHaveBeenCalled();
   });
 
-  it('createDebitNote: allows manual note for manual invoice (ScenarioF)', async () => {
-    // ScenarioF (undercharge correction): price must be > original (500)
-    const dto = {
-      correctionConceptCode: '2',
-      isElectronic: false,
-      items: [{ codeReference: 'SKU-001', quantity: 1, price: 600 }],
-    };
-    const r = await service.createDebitNote('inv-manual', dto);
-    expect((r as any).noteNumber).toContain('ND-MAN');
-    expect(factusGateway.createDebitNote).not.toHaveBeenCalled();
-  });
-
   it('createCreditNote: allows electronic note for electronic invoice (ScenarioA)', async () => {
     const dto = {
       correctionConceptCode: '1',
@@ -1543,17 +1478,6 @@ describe('SalesService — guard: electronic note for manual invoice', () => {
     };
     await service.createCreditNote('inv-electronic', dto);
     expect(factusGateway.createCreditNote).toHaveBeenCalledTimes(1);
-  });
-
-  it('createDebitNote: allows electronic note for electronic invoice (ScenarioF)', async () => {
-    // ScenarioF (undercharge correction): price must be > original (500)
-    const dto = {
-      correctionConceptCode: '2',
-      isElectronic: true,
-      items: [{ codeReference: 'SKU-001', quantity: 1, price: 600 }],
-    };
-    await service.createDebitNote('inv-electronic', dto);
-    expect(factusGateway.createDebitNote).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -1564,7 +1488,6 @@ describe('SalesService — validateCumulativeLimits', () => {
   let service: SalesService;
   let factusGateway: any;
   let creditNoteRepo: any;
-  let debitNoteRepo: any;
   let emissionRepo: any;
   let invoiceRepo: any;
   let queryRunner: any;
@@ -1602,7 +1525,6 @@ describe('SalesService — validateCumulativeLimits', () => {
       status: InvoiceStatus.PAID,
       notes: null,
       creditNotes: [],
-      debitNotes: [],
       createdAt: new Date(),
       updatedAt: new Date(),
       customerId: 'cust-1',
@@ -1635,9 +1557,6 @@ describe('SalesService — validateCumulativeLimits', () => {
       createCreditNote: jest
         .fn()
         .mockResolvedValue({ data: { number: 'NC-001', cude: 'cude-1' } }),
-      createDebitNote: jest
-        .fn()
-        .mockResolvedValue({ data: { number: 'ND-001', cude: 'cude-1' } }),
       downloadInvoicePdf: jest.fn(),
       downloadAdjustmentNotePdf: jest.fn(),
     };
@@ -1662,24 +1581,6 @@ describe('SalesService — validateCumulativeLimits', () => {
         return Promise.resolve(null);
       }),
       create: jest.fn((d: any) => ({ ...d, id: 'cn-new' })),
-      save: jest.fn((e: any) => Promise.resolve(e)),
-    };
-    debitNoteRepo = {
-      ...repoMock(),
-      find: jest.fn().mockResolvedValue([]),
-      findOne: jest.fn().mockImplementation((opts: any) => {
-        if (opts?.where?.id)
-          return Promise.resolve({
-            id: opts.where.id,
-            items: [],
-            noteNumber: 'ND-MAN-MAN-000001-1',
-            cude: null,
-            qrUrl: null,
-            publicUrl: null,
-          });
-        return Promise.resolve(null);
-      }),
-      create: jest.fn((d: any) => ({ ...d, id: 'dn-new' })),
       save: jest.fn((e: any) => Promise.resolve(e)),
     };
     emissionRepo = {
@@ -1721,14 +1622,11 @@ describe('SalesService — validateCumulativeLimits', () => {
           useValue: emissionRepo,
         },
         { provide: getRepositoryToken(CreditNote), useValue: creditNoteRepo },
-        { provide: getRepositoryToken(DebitNote), useValue: debitNoteRepo },
         { provide: getRepositoryToken(CreditNoteItem), useValue: repoMock() },
-        { provide: getRepositoryToken(DebitNoteItem), useValue: repoMock() },
         {
           provide: getRepositoryToken(CreditNoteItemTax),
           useValue: repoMock(),
         },
-        { provide: getRepositoryToken(DebitNoteItemTax), useValue: repoMock() },
         { provide: 'IFactusInvoicingGateway', useValue: factusGateway },
         {
           provide: InventoryService,
@@ -1760,8 +1658,8 @@ describe('SalesService — validateCumulativeLimits', () => {
               restoreStock: jest.fn().mockResolvedValue(0),
             } as any),
         },
-        { provide: ScenarioEHandler, useFactory: () => new ScenarioEHandler() },
-        { provide: ScenarioFHandler, useFactory: () => new ScenarioFHandler() },
+        { provide: PaymentMethodsService, useValue: { findOne: jest.fn().mockResolvedValue({ code: '10' }), findByCode: jest.fn().mockResolvedValue({ code: '10' }) } },
+        { provide: PaymentTypesService, useValue: { findOne: jest.fn().mockResolvedValue({ code: '1' }), findByCode: jest.fn().mockResolvedValue({ code: '1' }) } },
       ],
     }).compile();
     service = mod.get(SalesService);
@@ -1913,6 +1811,165 @@ describe('SalesService — validateCumulativeLimits', () => {
 // ---------------------------------------------------------------------------
 // Concurrent safety (unit-level simulation)
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Suite: searchManualBills
+// ---------------------------------------------------------------------------
+describe('SalesService.searchManualBills', () => {
+  let service: SalesService;
+  let invoiceRepo: any;
+
+  async function build() {
+    invoiceRepo = repoMock();
+    const mod: TestingModule = await Test.createTestingModule({
+      providers: [
+        SalesService,
+        { provide: getRepositoryToken(Invoice), useValue: invoiceRepo },
+        { provide: getRepositoryToken(InvoiceItem), useValue: repoMock() },
+        {
+          provide: getRepositoryToken(InvoiceElectronicEmission),
+          useValue: repoMock(),
+        },
+        { provide: getRepositoryToken(CreditNote), useValue: repoMock() },
+        { provide: getRepositoryToken(CreditNoteItem), useValue: repoMock() },
+        {
+          provide: getRepositoryToken(CreditNoteItemTax),
+          useValue: repoMock(),
+        },
+        { provide: 'IFactusInvoicingGateway', useValue: {} },
+        {
+          provide: InventoryService,
+          useValue: {
+            consumeStock: jest.fn(),
+            restoreStock: jest.fn().mockResolvedValue(0),
+          },
+        },
+        { provide: PdfGenerationService, useValue: {} },
+        { provide: DataSource, useValue: {} },
+        { provide: ScenarioAHandler, useValue: {} },
+        { provide: ScenarioBHandler, useValue: {} },
+        { provide: ScenarioCHandler, useValue: {} },
+        { provide: ScenarioDHandler, useValue: {} },
+        {
+          provide: PaymentMethodsService,
+          useValue: {
+            findOne: jest.fn().mockResolvedValue({ code: '10' }),
+            findByCode: jest.fn().mockResolvedValue({ code: '10' }),
+          },
+        },
+        {
+          provide: PaymentTypesService,
+          useValue: {
+            findOne: jest.fn().mockResolvedValue({ code: '1' }),
+            findByCode: jest.fn().mockResolvedValue({ code: '1' }),
+          },
+        },
+      ],
+    }).compile();
+    service = mod.get(SalesService);
+  }
+
+  const manualInvoiceTemplate = {
+    id: 'inv-manual-1',
+    sequentialNumber: 1,
+    invoiceNumber: 'MAN-000001',
+    isElectronic: false,
+    totalAmount: 1000,
+    status: InvoiceStatus.PAID,
+    notes: null,
+    creditNotes: [],
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    customerId: 'cust-1',
+    customer: {
+      id: 'cust-1',
+      name: 'Customer A',
+      documentNumber: '12345',
+      documentType: 'CC',
+      email: 'test@test.com',
+      address: 'calle 1 # 1-1',
+      phone: '1234567890',
+    },
+    items: [
+      {
+        id: 'item-1',
+        product: { sku: 'SKU-001', name: 'Product A' },
+        productId: 'prod-1',
+        quantity: 2,
+        unitPrice: 500,
+        subtotal: 1000,
+      },
+    ],
+    emission: null,
+  };
+
+  it('returns matching manual invoices by number', async () => {
+    await build();
+    const expected = { ...manualInvoiceTemplate, invoiceNumber: 'MAN-000042' };
+    invoiceRepo.find = jest.fn().mockResolvedValue([expected]);
+
+    const result = await service.searchManualBills('MAN-000042');
+    expect(invoiceRepo.find).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          isElectronic: false,
+          invoiceNumber: expect.anything(),
+        }),
+      }),
+    );
+    expect(result).toHaveLength(1);
+    expect(result[0].invoiceNumber).toBe('MAN-000042');
+  });
+
+  it('returns empty array when no matching manual invoices', async () => {
+    await build();
+    invoiceRepo.find = jest.fn().mockResolvedValue([]);
+
+    const result = await service.searchManualBills('MAN-999999');
+    expect(result).toEqual([]);
+  });
+
+  it('searches with partial number (LIKE)', async () => {
+    await build();
+    invoiceRepo.find = jest.fn().mockResolvedValue([
+      { ...manualInvoiceTemplate, invoiceNumber: 'MAN-000042' },
+    ]);
+
+    const result = await service.searchManualBills('MAN-00004');
+    expect(invoiceRepo.find).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          invoiceNumber: expect.anything(),
+        }),
+      }),
+    );
+    expect(result).toHaveLength(1);
+  });
+
+  it('transforms results into ManualInvoiceSearchResultDto shape', async () => {
+    await build();
+    invoiceRepo.find = jest.fn().mockResolvedValue([
+      {
+        ...manualInvoiceTemplate,
+        invoiceNumber: 'MAN-000001',
+        totalAmount: 1000,
+      },
+    ]);
+
+    const result = await service.searchManualBills('MAN-000001');
+    expect(result[0]).toHaveProperty('id');
+    expect(result[0]).toHaveProperty('invoiceNumber');
+    expect(result[0]).toHaveProperty('customer');
+    expect(result[0]).toHaveProperty('items');
+    expect(result[0]).toHaveProperty('totalAmount');
+    expect(result[0].customer).toHaveProperty('identification');
+    expect(result[0].customer).toHaveProperty('names');
+    expect(result[0].items[0]).toHaveProperty('codeReference');
+    expect(result[0].items[0]).toHaveProperty('name');
+    expect(result[0].items[0]).toHaveProperty('quantity');
+    expect(result[0].items[0]).toHaveProperty('price');
+  });
+});
+
 describe('concurrent sequential numbering safety', () => {
   it('5 parallel simulations produce unique sequential numbers', async () => {
     resetSeq();

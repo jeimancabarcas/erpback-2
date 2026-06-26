@@ -7,8 +7,6 @@ import {
   FactusInvoiceResponse,
   FactusCreditNoteRequest,
   FactusCreditNoteResponse,
-  FactusDebitNoteRequest,
-  FactusDebitNoteResponse,
 } from '../interfaces/factus-invoicing-gateway.interface';
 
 @Injectable()
@@ -74,7 +72,6 @@ export class FactusHttpInvoicingAdapter implements IFactusInvoicingGateway {
       );
       // Fallback defaults for Sandbox V2
       if (documentType.toLowerCase() === 'nota crédito') return 390;
-      if (documentType.toLowerCase() === 'nota débito') return 391;
       if (documentType.toLowerCase() === 'factura de venta') return 389;
       throw error;
     }
@@ -86,6 +83,9 @@ export class FactusHttpInvoicingAdapter implements IFactusInvoicingGateway {
 
     try {
       this.logger.log(`Sending POST request to ${endpoint}...`);
+      this.logger.debug(
+        `Payload: ${JSON.stringify(payload, null, 2)}`,
+      );
       const response = await fetch(`${baseUrl}${endpoint}`, {
         method: 'POST',
         headers: {
@@ -267,69 +267,6 @@ export class FactusHttpInvoicingAdapter implements IFactusInvoicingGateway {
 
     const rawResponse = await this.makePostRequest(
       '/v2/credit-notes/validate',
-      payload,
-    );
-    return this.mapResponse(rawResponse);
-  }
-
-  async createDebitNote(
-    debitNote: FactusDebitNoteRequest,
-  ): Promise<FactusDebitNoteResponse> {
-    const numberingRangeId =
-      debitNote.numberingRangeId ||
-      (await this.getActiveNumberingRangeId('Nota Débito'));
-
-    const payload: any = {
-      reference_code: debitNote.referenceCode,
-      correction_concept_code: debitNote.correctionConceptCode,
-      customization_id: debitNote.customizationId || '30',
-      bill_number: debitNote.billNumber,
-      numbering_range_id: numberingRangeId,
-      observation: debitNote.observation,
-      payment_details: debitNote.paymentDetails.map((p) => ({
-        payment_form: p.paymentForm,
-        payment_method_code: p.paymentMethodCode,
-        amount: p.amount,
-        reference_code: p.referenceCode,
-        due_date: p.dueDate,
-      })),
-      items: debitNote.items.map((item) => ({
-        code_reference: item.codeReference,
-        name: item.name,
-        quantity: Number(item.quantity).toFixed(2),
-        discount_rate: Number(item.discountRate).toFixed(2),
-        price: Number(item.price).toFixed(2),
-        unit_measure_code: item.unitMeasureCode || '94',
-        standard_code: item.standardCode || '999',
-        note: item.note,
-        taxes: item.taxes.map((t) => ({
-          code: t.code,
-          rate: t.rate,
-          is_excluded: t.isExcluded || false,
-        })),
-      })),
-    };
-
-    if (debitNote.customer) {
-      payload.customer = {
-        identification_document_code:
-          debitNote.customer.identificationDocumentCode,
-        identification: debitNote.customer.identification,
-        dv: debitNote.customer.dv,
-        legal_organization_code: debitNote.customer.legalOrganizationCode,
-        tribute_code: debitNote.customer.tributeCode || 'ZZ',
-        company: debitNote.customer.company,
-        trade_name: debitNote.customer.tradeName,
-        names: debitNote.customer.names,
-        address: debitNote.customer.address,
-        email: debitNote.customer.email,
-        phone: debitNote.customer.phone,
-        municipality_code: debitNote.customer.municipalityCode,
-      };
-    }
-
-    const rawResponse = await this.makePostRequest(
-      '/v2/debit-notes/validate',
       payload,
     );
     return this.mapResponse(rawResponse);

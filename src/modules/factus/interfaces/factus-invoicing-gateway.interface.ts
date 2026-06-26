@@ -149,51 +149,12 @@ export interface FactusCreditNoteResponse {
   data: FactusCreditNoteResponseData;
 }
 
-// Debit Notes
-export interface FactusDebitNoteRequest {
-  referenceCode: string;
-  correctionConceptCode: string; // concept code
-  customizationId?: string;
-  billNumber?: string;
-  numberingRangeId?: number;
-  observation?: string;
-  paymentDetails: FactusPaymentDetail[];
-  customer?: FactusCustomer;
-  items: FactusItem[];
-}
-
-export interface FactusDebitNoteResponseData {
-  referenceCode: string;
-  number: string;
-  cude: string; // DIAN CUDE/CUFE
-  qrUrl?: string;
-  publicUrl?: string;
-  sendEmail: boolean;
-  isValidated: boolean;
-  validatedAt: string | null;
-  createdAt: string;
-  numberingRange: FactusNumberingRange | null;
-  items: any[];
-  taxes: any[];
-  totals: FactusInvoiceResponseTotals | null;
-  links: { qr?: string; publicUrl?: string };
-}
-
-export interface FactusDebitNoteResponse {
-  status: string;
-  message: string;
-  data: FactusDebitNoteResponseData;
-}
-
 export interface IFactusInvoicingGateway {
   createInvoice(invoice: FactusInvoiceRequest): Promise<FactusInvoiceResponse>;
   destroyInvoice(referenceCode: string): Promise<{ status: string; message: string }>;
   createCreditNote(
     creditNote: FactusCreditNoteRequest,
   ): Promise<FactusCreditNoteResponse>;
-  createDebitNote(
-    debitNote: FactusDebitNoteRequest,
-  ): Promise<FactusDebitNoteResponse>;
   downloadInvoicePdf(
     number: string,
   ): Promise<{ pdfBase64Encoded: string; fileName: string }>;

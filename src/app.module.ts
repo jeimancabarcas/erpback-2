@@ -15,18 +15,17 @@ import { PurchaseOrderItem } from './modules/purchase-orders/entities/purchase-o
 import { InventoryBatch } from './modules/inventory/entities/inventory-batch.entity';
 import { CustomersModule } from './modules/customers/customers.module';
 import { Customer } from './modules/customers/entities/customer.entity';
+import { PaymentRecord } from './modules/customers/entities/payment-record.entity';
 import { SalesModule } from './modules/sales/sales.module';
 import { Invoice } from './modules/sales/entities/invoice.entity';
 import { InvoiceItem } from './modules/sales/entities/invoice-item.entity';
 import { InvoiceElectronicEmission } from './modules/sales/entities/invoice-electronic-emission.entity';
 import { CreditNote } from './modules/sales/entities/credit-note.entity';
-import { DebitNote } from './modules/sales/entities/debit-note.entity';
 import { CreditNoteItem } from './modules/sales/entities/credit-note-item.entity';
 import { CreditNoteItemTax } from './modules/sales/entities/credit-note-item-tax.entity';
-import { DebitNoteItem } from './modules/sales/entities/debit-note-item.entity';
-import { DebitNoteItemTax } from './modules/sales/entities/debit-note-item-tax.entity';
 import { InvoiceItemTax } from './modules/sales/entities/invoice-item-tax.entity';
 import { FactusModule } from './modules/factus/factus.module';
+import { FinanceModule } from './modules/finance/finance.module';
 import { PdfGenerationModule } from './modules/pdf-generation/pdf-generation.module';
 import { SettingsModule } from './modules/settings/settings.module';
 import { Tax } from './modules/settings/entities/tax.entity';
@@ -61,12 +60,10 @@ import { PaymentType } from './modules/settings/entities/payment-type.entity';
           InvoiceItem,
           InvoiceElectronicEmission,
           CreditNote,
-          DebitNote,
           CreditNoteItem,
           CreditNoteItemTax,
-          DebitNoteItem,
-          DebitNoteItemTax,
           InvoiceItemTax,
+          PaymentRecord,
           Tax,
           PaymentMethod,
           PaymentType,
@@ -82,6 +79,7 @@ import { PaymentType } from './modules/settings/entities/payment-type.entity';
     CustomersModule,
     SalesModule,
     FactusModule,
+    FinanceModule,
     PdfGenerationModule,
     SettingsModule,
   ],
