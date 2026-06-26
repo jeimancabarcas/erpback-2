@@ -17,7 +17,9 @@ import type {
   FactusItem,
 } from '../factus/interfaces/factus-invoicing-gateway.interface';
 import { CreateElectronicBillDto } from './dto/create-electronic-bill.dto';
+import { CreateElectronicCreditNoteDto } from './dto/create-electronic-credit-note.dto';
 import { ElectronicBillResponseDto } from './dto/electronic-bill-response.dto';
+import type { FactusCreditNoteRequest } from '../factus/interfaces/factus-invoicing-gateway.interface';
 
 @Injectable()
 export class ElectronicBillsService {
@@ -259,6 +261,153 @@ export class ElectronicBillsService {
         error.stack,
       );
       // No database record created — Factus did not confirm the emission
+      throw new BadRequestException(error.message);
+    }
+  }
+
+  /**
+   * Create an electronic credit note via Factus API.
+   * Resolves the emission by bill number, resolves customer from linked invoice or DTO,
+   * builds the Factus payload, and calls factusGateway.createCreditNote().
+   * No local DB save — the response is returned directly.
+   */
+  async createCreditNote(
+    dto: CreateElectronicCreditNoteDto,
+  ): Promise<any> {
+    // 1. Resolve emission by billNumber
+    const emission = await this.emissionRepository.findOne({
+      where: { number: dto.billNumber },
+    });
+
+    if (!emission) {
+      throw new NotFoundException(
+        `Emisión electrónica con número ${dto.billNumber} no encontrada`,
+      );
+    }
+
+    // 2. Extract numberingRangeId from emission's numberingRange
+    const numberingRangeId: number | undefined =
+      emission.numberingRange?.id ?? undefined;
+
+    // 3. Resolve customer — linked invoice takes precedence over DTO
+    let factusCustomer: FactusCustomer | undefined;
+
+    if (emission.invoiceId) {
+      const invoice = await this.invoiceRepository.findOne({
+        where: { id: emission.invoiceId },
+        relations: ['customer'],
+      });
+      if (invoice?.customer) {
+        factusCustomer = {
+          identificationDocumentCode: '13',
+          identification: invoice.customer.documentNumber,
+          legalOrganizationCode: '2',
+          names: invoice.customer.name,
+          address: invoice.customer.address || 'calle 1 # 1-1',
+          email: invoice.customer.email || 'cliente@correo.com',
+          phone: invoice.customer.phone || '1234567890',
+          municipalityCode: '68679',
+        };
+      }
+    }
+
+    // Fall back to DTO customer when no linked invoice or invoice has no customer
+    if (!factusCustomer && dto.customer) {
+      factusCustomer = {
+        identificationDocumentCode: '13',
+        identification: dto.customer.identification,
+        legalOrganizationCode: '2',
+        names: dto.customer.names,
+        address: dto.customer.address || 'calle 1 # 1-1',
+        email: dto.customer.email || 'cliente@correo.com',
+        phone: dto.customer.phone || '1234567890',
+        municipalityCode: '68679',
+      };
+    }
+
+    // 4. Resolve taxes for each item — product taxes or default IVA 19%
+    const factusItems: FactusItem[] = await Promise.all(
+      dto.items.map(async (item) => {
+        let taxes: { code: string; rate: string; isExcluded: boolean }[] = [];
+
+        if (item.productId) {
+          const product = await this.productRepository.findOne({
+            where: { id: item.productId },
+            relations: ['taxes'],
+          });
+          if (product) {
+            const sellTaxes = (product.taxes ?? []).filter((t) => t.isSell);
+            if (sellTaxes.length > 0) {
+              taxes = sellTaxes.map((t) => ({
+                code: t.code,
+                rate: Number(t.percentage).toFixed(2),
+                isExcluded: false,
+              }));
+            }
+          }
+        }
+
+        // Default fallback: Colombian IVA 19% when no product taxes are available
+        if (taxes.length === 0) {
+          taxes = [{ code: '01', rate: '19.00', isExcluded: false }];
+        }
+
+        // Convert price to pre-tax (Factus expects pre-tax price and adds tax itself)
+        const totalRate = taxes.reduce((sum, t) => sum + Number(t.rate), 0);
+        const priceBeforeTax =
+          Math.round((item.price / (1 + totalRate / 100)) * 100) / 100;
+
+        return {
+          codeReference: item.codeReference,
+          name: item.name,
+          quantity: item.quantity,
+          discountRate: item.discountRate ?? 0,
+          price: priceBeforeTax,
+          unitMeasureCode: '94',
+          standardCode: '999',
+          taxes,
+        };
+      }),
+    );
+
+    // Compute total matching Factus's internal calculation (net + tax per item)
+    const computedTotal = factusItems
+      .reduce((sum, item) => {
+        const netAmount = item.price * item.quantity;
+        const taxAmount = item.taxes.reduce(
+          (taxSum, t) =>
+            taxSum + Math.round(netAmount * (Number(t.rate) / 100) * 100) / 100,
+          0,
+        );
+        return sum + Math.round((netAmount + taxAmount) * 100) / 100;
+      }, 0)
+      .toFixed(2);
+
+    // 5. Build FactusCreditNoteRequest
+    const payload: FactusCreditNoteRequest = {
+      referenceCode: dto.referenceCode,
+      correctionConceptCode: dto.correctionConceptCode,
+      billNumber: dto.billNumber,
+      numberingRangeId,
+      observation: dto.observation,
+      paymentDetails: dto.paymentDetails.map((pd) => ({
+        paymentForm: pd.paymentForm,
+        paymentMethodCode: pd.paymentMethodCode,
+        amount: computedTotal, // Must match Factus's item total
+      })),
+      customer: factusCustomer,
+      items: factusItems,
+    };
+
+    // 6. Call Factus API — return response directly (no local DB save)
+    try {
+      const response = await this.factusGateway.createCreditNote(payload);
+      return response;
+    } catch (error) {
+      this.logger.error(
+        `Factus credit note creation failed: ${error.message}`,
+        error.stack,
+      );
       throw new BadRequestException(error.message);
     }
   }

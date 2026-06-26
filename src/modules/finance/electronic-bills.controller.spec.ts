@@ -3,6 +3,7 @@ import { ElectronicBillsController } from './electronic-bills.controller';
 import { ElectronicBillsService } from './electronic-bills.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CreateElectronicBillDto } from './dto/create-electronic-bill.dto';
+import { CreateElectronicCreditNoteDto } from './dto/create-electronic-credit-note.dto';
 import { QueryElectronicBillsDto } from './dto/query-electronic-bills.dto';
 
 describe('ElectronicBillsController', () => {
@@ -16,6 +17,7 @@ describe('ElectronicBillsController', () => {
     mockService = {
       create: jest.fn(),
       findAll: jest.fn(),
+      createCreditNote: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -119,6 +121,44 @@ describe('ElectronicBillsController', () => {
       const guards = Reflect.getMetadata('__guards__', ElectronicBillsController);
       expect(guards).toBeDefined();
       expect(guards[0]).toBe(JwtAuthGuard);
+    });
+  });
+
+  describe('POST /finance/electronic-bills/credit-note', () => {
+    it('should call service.createCreditNote and return the result', async () => {
+      const dto: CreateElectronicCreditNoteDto = {
+        billNumber: 'SETP990001',
+        referenceCode: 'NC-REF-123',
+        correctionConceptCode: '2',
+        observation: 'Test',
+        paymentDetails: [{ paymentForm: '1', paymentMethodCode: '10', amount: 100000 }],
+        items: [{ codeReference: 'SKU-001', name: 'Product A', quantity: 2, price: 50000 }],
+      };
+
+      mockService.createCreditNote.mockResolvedValue({
+        status: 'OK',
+        message: 'Created',
+        data: { number: 'NC-000001', cude: 'cude-abc', isValidated: true },
+      });
+
+      const result = await controller.createCreditNote(dto);
+
+      expect(mockService.createCreditNote).toHaveBeenCalledWith(dto);
+      expect(result.data.number).toBe('NC-000001');
+    });
+
+    it('should propagate service errors', async () => {
+      const dto: CreateElectronicCreditNoteDto = {
+        billNumber: 'SETP990001',
+        referenceCode: 'NC-REF-456',
+        correctionConceptCode: '2',
+        paymentDetails: [{ paymentForm: '1', paymentMethodCode: '10', amount: 50000 }],
+        items: [{ codeReference: 'SKU', name: 'P', quantity: 1, price: 100 }],
+      };
+
+      mockService.createCreditNote.mockRejectedValue(new Error('Factus error'));
+
+      await expect(controller.createCreditNote(dto)).rejects.toThrow('Factus error');
     });
   });
 });

@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { ElectronicBillsService } from './electronic-bills.service';
 import { InvoiceElectronicEmission } from '../sales/entities/invoice-electronic-emission.entity';
 import { Invoice } from '../sales/entities/invoice.entity';
@@ -8,6 +8,7 @@ import { PaginatedResult } from '../../common/interfaces/paginated-result.interf
 import { CreateElectronicBillDto } from './dto/create-electronic-bill.dto';
 import { ElectronicBillListDto } from './dto/electronic-bill-list.dto';
 import { Product } from '../inventory/entities/product.entity';
+import { CreateElectronicCreditNoteDto } from './dto/create-electronic-credit-note.dto';
 
 describe('ElectronicBillsService', () => {
   let service: ElectronicBillsService;
@@ -33,6 +34,7 @@ describe('ElectronicBillsService', () => {
     productRepo = repoMock();
     factusGateway = {
       createInvoice: jest.fn(),
+      createCreditNote: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -673,6 +675,202 @@ describe('ElectronicBillsService', () => {
       ).rejects.toThrow(BadRequestException);
 
       expect(emissionRepo.save).not.toHaveBeenCalled();
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // createCreditNote
+  // -----------------------------------------------------------------------
+  describe('createCreditNote', () => {
+    const validDto: CreateElectronicCreditNoteDto = {
+      billNumber: 'SETP990001',
+      referenceCode: 'NC-REF-123',
+      correctionConceptCode: '2',
+      observation: 'Anulación total',
+      paymentDetails: [
+        { paymentForm: '1', paymentMethodCode: '10', amount: 100000 },
+      ],
+      customer: {
+        identification: '123456789',
+        names: 'Test Customer',
+        address: 'calle 1 # 1-1',
+        email: 'test@test.com',
+        phone: '1234567890',
+      },
+      items: [
+        {
+          codeReference: 'SKU-001',
+          name: 'Product A',
+          quantity: 2,
+          price: 50000,
+        },
+      ],
+    };
+
+    it('throws NotFoundException when emission not found by billNumber', async () => {
+      emissionRepo.findOne.mockResolvedValue(null);
+
+      await expect(service.createCreditNote(validDto)).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(emissionRepo.findOne).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { number: 'SETP990001' },
+        }),
+      );
+      expect(factusGateway.createCreditNote).not.toHaveBeenCalled();
+    });
+
+    it('throws BadRequestException when Factus API rejects', async () => {
+      emissionRepo.findOne.mockResolvedValue({
+        id: 'em-1',
+        number: 'SETP990001',
+        numberingRange: null,
+        invoiceId: null,
+      });
+      factusGateway.createCreditNote.mockRejectedValue(
+        new Error('Factus error: invalid payload'),
+      );
+
+      await expect(service.createCreditNote(validDto)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(factusGateway.createCreditNote).toHaveBeenCalledTimes(1);
+    });
+
+    it('resolves customer from linked invoice when invoiceId exists', async () => {
+      emissionRepo.findOne.mockResolvedValue({
+        id: 'em-1',
+        number: 'SETP990001',
+        numberingRange: null,
+        invoiceId: 'inv-1',
+      });
+      invoiceRepo.findOne.mockResolvedValue({
+        id: 'inv-1',
+        customer: {
+          documentNumber: '987654321',
+          name: 'Linked Customer',
+          address: 'linked address',
+          email: 'linked@test.com',
+          phone: '555-0000',
+        },
+      });
+      factusGateway.createCreditNote.mockResolvedValue({
+        status: 'OK',
+        message: 'Created',
+        data: { number: 'NC-000001', cude: 'cude-abc', isValidated: true },
+      });
+
+      await service.createCreditNote(validDto);
+
+      expect(invoiceRepo.findOne).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'inv-1' },
+          relations: ['customer'],
+        }),
+      );
+      // Customer from linked invoice should be used (not DTO customer)
+      expect(factusGateway.createCreditNote).toHaveBeenCalledWith(
+        expect.objectContaining({
+          customer: expect.objectContaining({
+            identification: '987654321',
+            names: 'Linked Customer',
+          }),
+        }),
+      );
+    });
+
+    it('falls back to DTO customer when no linked invoice', async () => {
+      emissionRepo.findOne.mockResolvedValue({
+        id: 'em-1',
+        number: 'SETP990001',
+        numberingRange: null,
+        invoiceId: null,
+      });
+      factusGateway.createCreditNote.mockResolvedValue({
+        status: 'OK',
+        message: 'Created',
+        data: { number: 'NC-000001', cude: 'cude-abc', isValidated: true },
+      });
+
+      await service.createCreditNote(validDto);
+
+      // Customer from DTO should be used
+      expect(factusGateway.createCreditNote).toHaveBeenCalledWith(
+        expect.objectContaining({
+          customer: expect.objectContaining({
+            identification: '123456789',
+            names: 'Test Customer',
+          }),
+        }),
+      );
+    });
+
+    it('builds and sends Factus payload with numberingRangeId', async () => {
+      emissionRepo.findOne.mockResolvedValue({
+        id: 'em-1',
+        number: 'SETP990001',
+        numberingRange: { id: 390 },
+        invoiceId: null,
+      });
+      factusGateway.createCreditNote.mockResolvedValue({
+        status: 'OK',
+        message: 'Created',
+        data: { number: 'NC-000001', cude: 'cude-abc', isValidated: true },
+      });
+
+      await service.createCreditNote(validDto);
+
+      expect(factusGateway.createCreditNote).toHaveBeenCalledWith(
+        expect.objectContaining({
+          referenceCode: 'NC-REF-123',
+          correctionConceptCode: '2',
+          billNumber: 'SETP990001',
+          numberingRangeId: 390,
+          paymentDetails: expect.arrayContaining([
+            expect.objectContaining({
+              paymentForm: '1',
+              paymentMethodCode: '10',
+              amount: '100000.00',
+            }),
+          ]),
+          items: expect.arrayContaining([
+            expect.objectContaining({
+              codeReference: 'SKU-001',
+              quantity: 2,
+              price: 50000,
+            }),
+          ]),
+        }),
+      );
+    });
+
+    it('returns the Factus response directly (no local save)', async () => {
+      emissionRepo.findOne.mockResolvedValue({
+        id: 'em-1',
+        number: 'SETP990001',
+        numberingRange: null,
+        invoiceId: null,
+      });
+      const factusResponse = {
+        status: 'OK',
+        message: 'Created',
+        data: {
+          number: 'NC-000001',
+          cude: 'cude-abc',
+          qrUrl: 'https://qr',
+          publicUrl: 'https://pdf',
+          isValidated: true,
+          createdAt: '2026-06-26T00:00:00Z',
+        },
+      };
+      factusGateway.createCreditNote.mockResolvedValue(factusResponse);
+
+      const result = await service.createCreditNote(validDto);
+
+      expect(result).toEqual(factusResponse);
+      expect(emissionRepo.save).not.toHaveBeenCalled();
+      expect(emissionRepo.create).not.toHaveBeenCalled();
     });
   });
 });
