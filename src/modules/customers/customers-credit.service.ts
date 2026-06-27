@@ -150,11 +150,16 @@ export class CustomersCreditService {
 
       const invoice = await queryRunner.manager.findOne(Invoice, {
         where: { id: dto.invoiceId },
+        relations: ['items', 'items.product'],
       });
 
       let invoiceStatus = invoice?.status ?? InvoiceStatus.ON_CREDIT;
 
-      if (invoice && totalPayments >= Number(invoice.totalAmount)) {
+      const invoiceTotal = (invoice?.items ?? []).reduce(
+        (acc, item) => acc + Number(item.quantity) * Number(item.product?.sellingPrice || 0),
+        0,
+      );
+      if (invoice && totalPayments >= invoiceTotal) {
         invoice.status = InvoiceStatus.PAID;
         await queryRunner.manager.save(invoice);
         invoiceStatus = InvoiceStatus.PAID;

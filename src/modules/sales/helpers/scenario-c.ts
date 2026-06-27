@@ -56,9 +56,9 @@ export class ScenarioCHandler implements ScenarioHandler {
       const newPrice =
         itemDto.price !== undefined
           ? Number(itemDto.price)
-          : Number(matchingInvoiceItem.unitPrice);
+          : Number(matchingInvoiceItem.product?.sellingPrice || 0);
 
-      const originalPrice = Number(matchingInvoiceItem.unitPrice);
+      const originalPrice = Number(matchingInvoiceItem.product?.sellingPrice || 0);
       const priceDiff = originalPrice - newPrice;
 
       // Validate priceDiff > 0 (note price < original price — overcharge correction)
@@ -73,11 +73,15 @@ export class ScenarioCHandler implements ScenarioHandler {
 
       // Calculate proportional tax (price mode) — no inventory impact
       const invoiceItemTaxes = matchingInvoiceItem.invoiceItemTaxes || [];
-      const taxResult = calculateProportionalTax(invoiceItemTaxes, {
-        type: 'price',
-        noteValue: newPrice,
-        invoiceValue: originalPrice,
-      });
+      const taxResult = calculateProportionalTax(
+        invoiceItemTaxes,
+        {
+          type: 'price',
+          noteValue: newPrice,
+          invoiceValue: originalPrice,
+        },
+        Number(matchingInvoiceItem.product?.sellingPrice || 0),
+      );
 
       const noteItemTaxes = taxResult.itemTaxes.map((t) => ({
         taxId: t.taxId,

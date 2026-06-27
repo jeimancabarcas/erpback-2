@@ -3,7 +3,8 @@ import { PdfGenerationService } from './pdf-generation.service';
 function makeInvoice(overrides: any = {}): any {
   return {
     id: 'inv-1',
-    invoiceNumber: 'MAN-00000001',
+    sequentialNumber: 1,
+    isElectronic: false,
     date: new Date('2026-06-01'),
     customerId: 'cust-1',
     customer: {
@@ -12,17 +13,13 @@ function makeInvoice(overrides: any = {}): any {
       documentNumber: '123456789',
       documentType: 'CC',
     },
-    totalAmount: 1000,
     status: 'PAID',
-    isElectronic: false,
     notes: null,
     items: [
       {
         id: 'item-1',
-        product: { sku: 'SKU-001', name: 'Producto A' },
+        product: { sku: 'SKU-001', name: 'Producto A', sellingPrice: 500 },
         quantity: 2,
-        unitPrice: 500,
-        subtotal: 1000,
       },
     ],
     creditNotes: [],
@@ -55,11 +52,11 @@ describe('PdfGenerationService', () => {
   });
 
   it('contains invoice number as hex-encoded text', async () => {
-    const invoice = makeInvoice({ invoiceNumber: 'MAN-00000001' });
+    const invoice = makeInvoice({ sequentialNumber: 1 });
     const result = await service.generateInvoicePdf(invoice, [], false);
 
     const decoded = Buffer.from(result, 'base64').toString('latin1');
-    expect(decoded.includes(textToHex('MAN-00000001'))).toBe(true);
+    expect(decoded.includes(textToHex('MAN-000001'))).toBe(true);
   });
 
   it('contains customer info as hex-encoded text', async () => {
@@ -111,7 +108,7 @@ describe('PdfGenerationService', () => {
   });
 
   it('includes correct balance formula values with credit notes only', async () => {
-    const invoice = makeInvoice({ totalAmount: 1000 });
+    const invoice = makeInvoice({ items: [{ product: { sellingPrice: 500 }, quantity: 2, id: 'item-1' }] });
     const creditNotes = [
       {
         id: 'cn-1',
@@ -137,6 +134,7 @@ describe('PdfGenerationService', () => {
     );
 
     const decoded = Buffer.from(result, 'base64').toString('latin1');
+    // totalAmount = 2 * 500 = 1000
     expect(decoded.includes(textToHex('$1,000.00'))).toBe(true);
     expect(decoded.includes(textToHex('$200.00'))).toBe(true);
     expect(decoded.includes(textToHex('$800.00'))).toBe(true);
@@ -146,16 +144,12 @@ describe('PdfGenerationService', () => {
     const invoice = makeInvoice({
       items: [
         {
-          product: { name: 'Producto A' },
+          product: { name: 'Producto A', sellingPrice: 500 },
           quantity: 2,
-          unitPrice: 500,
-          subtotal: 1000,
         },
         {
-          product: { name: 'Producto B' },
+          product: { name: 'Producto B', sellingPrice: 100 },
           quantity: 3,
-          unitPrice: 100,
-          subtotal: 300,
         },
       ],
     });

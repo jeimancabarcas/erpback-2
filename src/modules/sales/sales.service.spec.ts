@@ -56,11 +56,9 @@ function makeInvoice(
   return {
     id: 'inv-1',
     sequentialNumber: 1,
-    invoiceNumber: 'FAC-000001',
     date: new Date(),
     customerId: 'cust-1',
     customer: undefined as any,
-    totalAmount: 1000,
     status: 'PAID' as any,
     notes: null as any,
     items: [],
@@ -145,7 +143,7 @@ describe('SalesService.findAll — netTotal computation', () => {
 
   it('a) netTotal equals totalAmount when no credit notes', async () => {
     const inv = makeInvoice({
-      totalAmount: 1000,
+      items: [{ quantity: 10, product: { sellingPrice: 100 } } as any],
       creditNotes: [],
     });
     await build([inv]);
@@ -155,7 +153,7 @@ describe('SalesService.findAll — netTotal computation', () => {
 
   it('b) netTotal = totalAmount - creditNote.amount', async () => {
     const inv = makeInvoice({
-      totalAmount: 1000,
+      items: [{ quantity: 10, product: { sellingPrice: 100 } } as any],
       creditNotes: [{ amount: 200 } as CreditNote],
     });
     await build([inv]);
@@ -584,18 +582,13 @@ describe('SalesService — manual invoice paths', () => {
   function buildItem(overrides?: any) {
     return {
       id: 'item-1',
-      product: { sku: 'SKU-001', name: 'Product A' },
+      product: { sku: 'SKU-001', name: 'Product A', sellingPrice: 500 },
       productId: 'prod-1',
       quantity: 2,
-      unitPrice: 500,
-      subtotal: 1000,
       invoiceItemTaxes: [
         {
           taxId: 'tax-1',
-          taxCode: '01',
-          taxName: 'IVA',
-          taxRate: 19,
-          taxAmount: 95,
+          tax: { code: '01', name: 'IVA', percentage: 19 },
         },
       ],
       ...overrides,
@@ -798,7 +791,6 @@ describe('SalesService — manual invoice paths', () => {
     expect(pdfService.generateInvoicePdf).toHaveBeenCalledWith(
       expect.objectContaining({
         id: 'inv-manual',
-        invoiceNumber: 'MAN-000001',
       }),
       [],
     );
@@ -891,7 +883,7 @@ describe('SalesService — manual invoice paths', () => {
     expect(r.emission!.cude).toBe('cufe-abc-123');
   });
 
-  it('emit() preserves original invoiceNumber (MAN-{seq}) when emitting manual invoice', async () => {
+  it('emit() sets FAC-{seq} prefix after marking invoice as electronic', async () => {
     factusGateway.createInvoice = jest.fn().mockResolvedValue({
       status: 'OK',
       message: 'Success',
@@ -901,7 +893,7 @@ describe('SalesService — manual invoice paths', () => {
     invoiceRepo.findOne = jest
       .fn()
       .mockResolvedValue(
-        buildManualInv({ id: 'inv-emit', invoiceNumber: 'MAN-000042' }),
+        buildManualInv({ id: 'inv-emit', sequentialNumber: 42 }),
       );
     queryRunner.manager.save = jest
       .fn()
@@ -912,7 +904,7 @@ describe('SalesService — manual invoice paths', () => {
       });
 
     const r = await service.emit('inv-emit');
-    expect(r.invoiceNumber).toBe('MAN-000042');
+    expect(r.invoiceNumber).toBe('FAC-000042');
     expect(r.emission!.number).toBe('SETP990003678');
     expect(r.isElectronic).toBe(true);
   });
@@ -1253,18 +1245,13 @@ describe('SalesService — guard: electronic note for manual invoice', () => {
   function buildItem(overrides?: any) {
     return {
       id: 'item-1',
-      product: { sku: 'SKU-001', name: 'Product A' },
+      product: { sku: 'SKU-001', name: 'Product A', sellingPrice: 500 },
       productId: 'prod-1',
       quantity: 2,
-      unitPrice: 500,
-      subtotal: 1000,
       invoiceItemTaxes: [
         {
           taxId: 'tax-1',
-          taxCode: '01',
-          taxName: 'IVA',
-          taxRate: 19,
-          taxAmount: 95,
+          tax: { code: '01', name: 'IVA', percentage: 19 },
         },
       ],
       ...overrides,
@@ -1497,18 +1484,13 @@ describe('SalesService — validateCumulativeLimits', () => {
   function buildItem(overrides?: any) {
     return {
       id: 'item-1',
-      product: { sku: 'SKU-001', name: 'Product A' },
+      product: { sku: 'SKU-001', name: 'Product A', sellingPrice: 500 },
       productId: 'prod-1',
-      quantity: 10,
-      unitPrice: 100,
-      subtotal: 1000,
+      quantity: 2,
       invoiceItemTaxes: [
         {
           taxId: 'tax-1',
-          taxCode: '01',
-          taxName: 'IVA',
-          taxRate: 19,
-          taxAmount: 19,
+          tax: { code: '01', name: 'IVA', percentage: 19 },
         },
       ],
       ...overrides,
@@ -1517,11 +1499,9 @@ describe('SalesService — validateCumulativeLimits', () => {
 
   function buildManualInv(overrides?: any): any {
     return {
-      id: 'inv-1',
+      id: 'inv-manual',
       sequentialNumber: 1,
-      invoiceNumber: 'MAN-000001',
       isElectronic: false,
-      totalAmount: 1000,
       status: InvoiceStatus.PAID,
       notes: null,
       creditNotes: [],
@@ -1712,8 +1692,8 @@ describe('SalesService — validateCumulativeLimits', () => {
       items: [
         {
           codeReference: 'SKU-001',
-          quantity: 4,
-          price: 100,
+          quantity: 2,
+          price: 200,
           productId: 'prod-1',
         },
       ],
@@ -1870,10 +1850,8 @@ describe('SalesService.searchManualBills', () => {
 
   const manualInvoiceTemplate = {
     id: 'inv-manual-1',
-    sequentialNumber: 1,
-    invoiceNumber: 'MAN-000001',
+    sequentialNumber: 42,
     isElectronic: false,
-    totalAmount: 1000,
     status: InvoiceStatus.PAID,
     notes: null,
     creditNotes: [],
@@ -1892,11 +1870,9 @@ describe('SalesService.searchManualBills', () => {
     items: [
       {
         id: 'item-1',
-        product: { sku: 'SKU-001', name: 'Product A' },
+        product: { sku: 'SKU-001', name: 'Product A', sellingPrice: 500 },
         productId: 'prod-1',
         quantity: 2,
-        unitPrice: 500,
-        subtotal: 1000,
       },
     ],
     emission: null,
@@ -1904,15 +1880,13 @@ describe('SalesService.searchManualBills', () => {
 
   it('returns matching manual invoices by number', async () => {
     await build();
-    const expected = { ...manualInvoiceTemplate, invoiceNumber: 'MAN-000042' };
-    invoiceRepo.find = jest.fn().mockResolvedValue([expected]);
+    invoiceRepo.find = jest.fn().mockResolvedValue([manualInvoiceTemplate]);
 
-    const result = await service.searchManualBills('MAN-000042');
+    const result = await service.searchManualBills('42');
     expect(invoiceRepo.find).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
-          isElectronic: false,
-          invoiceNumber: expect.anything(),
+          sequentialNumber: 42,
         }),
       }),
     );
@@ -1928,17 +1902,17 @@ describe('SalesService.searchManualBills', () => {
     expect(result).toEqual([]);
   });
 
-  it('searches with partial number (LIKE)', async () => {
+  it('searches with partial number (sequential)', async () => {
     await build();
     invoiceRepo.find = jest.fn().mockResolvedValue([
-      { ...manualInvoiceTemplate, invoiceNumber: 'MAN-000042' },
+      manualInvoiceTemplate,
     ]);
 
-    const result = await service.searchManualBills('MAN-00004');
+    const result = await service.searchManualBills('42');
     expect(invoiceRepo.find).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
-          invoiceNumber: expect.anything(),
+          sequentialNumber: 42,
         }),
       }),
     );
@@ -1948,14 +1922,10 @@ describe('SalesService.searchManualBills', () => {
   it('transforms results into ManualInvoiceSearchResultDto shape', async () => {
     await build();
     invoiceRepo.find = jest.fn().mockResolvedValue([
-      {
-        ...manualInvoiceTemplate,
-        invoiceNumber: 'MAN-000001',
-        totalAmount: 1000,
-      },
+      manualInvoiceTemplate,
     ]);
 
-    const result = await service.searchManualBills('MAN-000001');
+    const result = await service.searchManualBills('42');
     expect(result[0]).toHaveProperty('id');
     expect(result[0]).toHaveProperty('invoiceNumber');
     expect(result[0]).toHaveProperty('customer');

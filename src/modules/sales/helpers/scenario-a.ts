@@ -76,18 +76,22 @@ export class ScenarioAHandler implements ScenarioHandler {
       const price =
         itemDto.price !== undefined
           ? Number(itemDto.price)
-          : Number(matchingInvoiceItem.unitPrice);
+          : Number(matchingInvoiceItem.product?.sellingPrice || 0);
 
       const subtotal = requestedQty * price;
       totalAmount += subtotal;
 
       // Calculate proportional tax (qty mode)
       const invoiceItemTaxes = matchingInvoiceItem.invoiceItemTaxes || [];
-      const taxResult = calculateProportionalTax(invoiceItemTaxes, {
-        type: 'qty',
-        noteValue: requestedQty,
-        invoiceValue: matchingInvoiceItem.quantity,
-      });
+      const taxResult = calculateProportionalTax(
+        invoiceItemTaxes,
+        {
+          type: 'qty',
+          noteValue: requestedQty,
+          invoiceValue: matchingInvoiceItem.quantity,
+        },
+        Number(matchingInvoiceItem.product?.sellingPrice || 0),
+      );
 
       // Restore stock
       const totalItemCost = await this.inventoryService.restoreStock(

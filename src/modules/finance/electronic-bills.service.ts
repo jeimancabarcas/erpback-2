@@ -85,10 +85,15 @@ export class ElectronicBillsService {
           (sum, item) => sum + item.price * item.quantity,
           0,
         );
-        const invoiceTotal = Number(manualInvoice.totalAmount);
+        const invoiceTotal = (manualInvoice.items ?? []).reduce(
+          (sum, item) => sum + Number(item.quantity) * Number(item.product?.sellingPrice || 0),
+          0,
+        );
 
+        const invPrefix = manualInvoice.isElectronic ? 'FAC' : 'MAN';
+        const invNumber = `${invPrefix}-${String(manualInvoice.sequentialNumber).padStart(6, '0')}`;
         if (Math.abs(dtoTotal - invoiceTotal) > 0.01) {
-          warning = `Los valores han cambiado. La factura NO quedará vinculada a la factura manual ${manualInvoice.invoiceNumber}.`;
+          warning = `Los valores han cambiado. La factura NO quedará vinculada a la factura manual ${invNumber}.`;
           linkedInvoiceId = null;
         } else {
           linkedInvoiceId = dto.manualInvoiceId;
@@ -113,7 +118,7 @@ export class ElectronicBillsService {
       }
 
       factusItems = manualInvoice.items.map((item) => {
-        const rawUnitPrice = Number(item.unitPrice);
+        const rawUnitPrice = Number(item.product?.sellingPrice || 0);
         const sellTaxes = (item.product?.taxes ?? []).filter((t) => t.isSell);
         const totalRate = sellTaxes.reduce((sum, t) => sum + Number(t.percentage), 0);
         const priceBeforeTax = Math.round(rawUnitPrice / (1 + totalRate / 100) * 100) / 100;

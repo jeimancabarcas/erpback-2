@@ -18,6 +18,7 @@ describe('CustomersCreditService', () => {
     create: jest.fn(),
     save: jest.fn(),
     find: jest.fn(),
+    findAndCount: jest.fn().mockResolvedValue([[], 0]),
   };
 
   const mockInvoiceRepository = {
@@ -174,9 +175,12 @@ describe('CustomersCreditService', () => {
       const customer = makeCustomer({ currentBalance: 2000000 });
       const invoice = {
         id: 'inv-1',
-        totalAmount: 1000000,
+        sequentialNumber: 1,
+        isElectronic: false,
         status: InvoiceStatus.ON_CREDIT,
-      } as Invoice;
+        items: [{ quantity: 10, product: { sellingPrice: 100000 } }],
+        creditNotes: [],
+      } as any;
 
       mockCustomerRepository.findOne.mockResolvedValue(customer);
       mockQueryRunner.manager.findOne.mockResolvedValueOnce(customer);
@@ -210,9 +214,12 @@ describe('CustomersCreditService', () => {
       const customer = makeCustomer({ currentBalance: 1200000 });
       const invoice = {
         id: 'inv-1',
-        totalAmount: 1000000,
+        sequentialNumber: 1,
+        isElectronic: false,
         status: InvoiceStatus.ON_CREDIT,
-      } as Invoice;
+        items: [{ quantity: 1, product: { sellingPrice: 1000000 } }],
+        creditNotes: [],
+      } as any;
 
       mockCustomerRepository.findOne.mockResolvedValue(customer);
       mockQueryRunner.manager.findOne
@@ -237,9 +244,12 @@ describe('CustomersCreditService', () => {
       const customer = makeCustomer({ currentBalance: 1200000 });
       const invoice = {
         id: 'inv-1',
-        totalAmount: 1200000,
+        sequentialNumber: 1,
+        isElectronic: false,
         status: InvoiceStatus.ON_CREDIT,
-      } as Invoice;
+        items: [{ quantity: 10, product: { sellingPrice: 120000 } }],
+        creditNotes: [],
+      } as any;
 
       mockCustomerRepository.findOne.mockResolvedValue(customer);
       mockQueryRunner.manager.findOne.mockResolvedValueOnce(customer);
@@ -267,16 +277,18 @@ describe('CustomersCreditService', () => {
           updatedAt: new Date(),
         },
       ];
-      mockPaymentRecordRepository.find.mockResolvedValue(records);
+      mockPaymentRecordRepository.findAndCount.mockResolvedValue([records, records.length]);
 
       const result = await service.getPaymentHistory('cust-1');
 
-      expect(result).toHaveLength(1);
-      expect(result[0].amount).toBe(500000);
-      expect(mockPaymentRecordRepository.find).toHaveBeenCalledWith({
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].amount).toBe(500000);
+      expect(mockPaymentRecordRepository.findAndCount).toHaveBeenCalledWith({
         where: { customerId: 'cust-1' },
         relations: ['invoice'],
         order: { paymentDate: 'DESC' },
+        take: 10,
+        skip: 0,
       });
     });
   });

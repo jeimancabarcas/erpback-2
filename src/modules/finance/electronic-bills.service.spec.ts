@@ -265,17 +265,16 @@ describe('ElectronicBillsService', () => {
   describe('create — with manual bill linkage', () => {
     const manualInvoice = {
       id: 'inv-manual-1',
-      invoiceNumber: 'MAN-000042',
-      totalAmount: 100000,
+      sequentialNumber: 42,
+      isElectronic: false,
       customer: {
         documentNumber: '123456789',
         name: 'Test Customer',
       },
       items: [
         {
-          product: { sku: 'SKU-001', name: 'Product A' },
+          product: { sku: 'SKU-001', name: 'Product A', sellingPrice: 50000 },
           quantity: 2,
-          unitPrice: 50000,
         },
       ],
     };
@@ -504,18 +503,18 @@ describe('ElectronicBillsService', () => {
   describe('create — manual invoice linkage with taxes (Path A)', () => {
     const manualInvoiceWithTaxes = {
       id: 'inv-manual-tax',
-      invoiceNumber: 'MAN-000050',
-      totalAmount: 238000,
+      sequentialNumber: 50,
+      isElectronic: false,
       customer: { documentNumber: '123456789', name: 'Test' },
       items: [
         {
           productId: 'prod-1',
           quantity: 2,
-          unitPrice: 119000,
           product: {
             id: 'prod-1',
             sku: 'SKU-001',
             name: 'Product A',
+            sellingPrice: 119000,
             taxes: [
               { id: 'tax-1', code: '01', percentage: 19.0, isSell: true },
             ],

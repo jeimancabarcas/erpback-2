@@ -169,10 +169,6 @@ export class SalesService {
           itemTaxAmount += taxAmt;
           invoiceItemTaxes.push({
             taxId: tax.id,
-            taxCode: tax.code,
-            taxName: tax.name,
-            taxRate: Number(tax.percentage),
-            taxAmount: taxAmt,
           });
           factusTaxes.push({
             code: tax.code,
@@ -191,10 +187,7 @@ export class SalesService {
           this.invoiceItemRepository.create({
             productId: item.productId,
             quantity: item.quantity,
-            unitPrice,
             purchasePrice,
-            subtotal,
-            taxAmount: itemTaxAmount,
           }),
         );
 
@@ -259,11 +252,10 @@ export class SalesService {
         }
       }
 
-      // 5. Crear la factura local (sin invoiceNumber inicial — se asigna tras obtener sequentialNumber)
+      // 5. Crear la factura local
       const invoice = this.invoiceRepository.create({
         ...invoiceData,
         date: invoiceData.date || new Date(),
-        totalAmount,
         status: invoiceStatus,
         isElectronic: createDto.isElectronic ?? false,
         installments: createDto.installments ?? undefined,
@@ -271,11 +263,7 @@ export class SalesService {
       });
       const savedInvoice = await queryRunner.manager.save(invoice);
 
-      // 6. Derivar invoiceNumber del sequentialNumber generado por la BD
-      const prefix = savedInvoice.isElectronic ? 'FAC' : 'MAN';
-      savedInvoice.invoiceNumber = `${prefix}-${String(savedInvoice.sequentialNumber).padStart(6, '0')}`;
-
-      // 7. Guardar InvoiceItemTax para cada item (si tiene impuestos)
+      // 6. Guardar InvoiceItemTax para cada item (solo taxId — el resto se computa desde Tax entity)
       for (let i = 0; i < savedInvoice.items.length; i++) {
         const savedItem = savedInvoice.items[i];
         const itemTaxes = allItemsTaxData[i];
@@ -284,10 +272,6 @@ export class SalesService {
             await queryRunner.manager.save(InvoiceItemTax, {
               invoiceItem: savedItem,
               taxId: t.taxId as string,
-              taxCode: t.taxCode as string,
-              taxName: t.taxName as string,
-              taxRate: t.taxRate as number,
-              taxAmount: t.taxAmount as number,
             });
           }
         }
@@ -328,6 +312,14 @@ export class SalesService {
       await queryRunner.manager.save(savedInvoice);
       await queryRunner.commitTransaction();
 
+      // Attach computed fields before returning
+      const prefix = savedInvoice.isElectronic ? 'FAC' : 'MAN';
+      (savedInvoice as any).invoiceNumber = `${prefix}-${String(savedInvoice.sequentialNumber).padStart(6, '0')}`;
+      (savedInvoice as any).totalAmount = (savedInvoice.items ?? []).reduce(
+        (acc, item) => acc + Number(item.quantity) * Number(item.product?.sellingPrice || 0),
+        0,
+      );
+
       return savedInvoice;
     } catch (error) {
       await queryRunner.rollbackTransaction();
@@ -356,21 +348,21 @@ export class SalesService {
       throw new NotFoundException(`Factura con ID ${id} no encontrada`);
     }
 
-    if (invoice.isElectronic) {
-      throw new BadRequestException('La factura ya es electrónica');
-    }
-
     if (invoice.emission) {
       throw new BadRequestException(
         'La factura ya tiene una emisión registrada',
       );
     }
 
+    if (invoice.isElectronic) {
+      throw new BadRequestException('La factura ya es electrónica');
+    }
+
     // Build Factus payload from existing invoice data
     const factusItems: FactusItem[] = [];
 
     for (const item of invoice.items) {
-      const unitPrice = Number(item.unitPrice);
+      const unitPrice = Number(item.product?.sellingPrice || 0);
       const taxes = item.product?.taxes || [];
       const totalTaxRate = taxes.reduce(
         (sum, t) => sum + Number(t.percentage),
@@ -423,9 +415,11 @@ export class SalesService {
 
     // Use stored reference code if available, otherwise generate a new one
     // Store it on the invoice so we can retry/destroy if Factus fails
+    const prefix = invoice.isElectronic ? 'FAC' : 'MAN';
+    const invNumber = `${prefix}-${String(invoice.sequentialNumber).padStart(6, '0')}`;
     const referenceCode =
       invoice.factusReferenceCode ||
-      `FAC-REF-${invoice.invoiceNumber || invoice.id}-${Date.now()}`;
+      `FAC-REF-${invNumber || invoice.id}-${Date.now()}`;
 
     // Auth helper: call Factus, handle 409 with auto-cleanup + retry once
     const callFactusWithRetry = async (): Promise<any> => {
@@ -506,44 +500,28 @@ export class SalesService {
       invoice.emission = await queryRunner.manager.save(emission);
       await queryRunner.manager.save(invoice);
 
-      // Persist InvoiceItemTax records for each item
+      // Persist InvoiceItemTax records for each item (only taxId — rest is derived from Tax entity)
       for (const item of invoice.items) {
         const taxes = item.product?.taxes || [];
         if (taxes.length === 0) continue;
 
-        const unitPrice = Number(item.unitPrice);
-        const totalTaxRate = taxes.reduce(
-          (sum, t) => sum + Number(t.percentage),
-          0,
-        );
-        const priceBeforeTax =
-          totalTaxRate > 0
-            ? Number((unitPrice / (1 + totalTaxRate / 100)).toFixed(2))
-            : unitPrice;
-
-        let itemTaxAmount = 0;
         for (const tax of taxes) {
-          const taxAmt = Number(
-            ((priceBeforeTax * Number(tax.percentage)) / 100).toFixed(2),
-          );
-          itemTaxAmount += taxAmt;
           await queryRunner.manager.save(InvoiceItemTax, {
             invoiceItem: item,
             taxId: tax.id,
-            taxCode: tax.code,
-            taxName: tax.name,
-            taxRate: Number(tax.percentage),
-            taxAmount: taxAmt,
           });
-        }
-
-        if (item.taxAmount !== itemTaxAmount) {
-          item.taxAmount = itemTaxAmount;
-          await queryRunner.manager.save(item);
         }
       }
 
       await queryRunner.commitTransaction();
+
+      // Attach computed fields before returning
+      const prefix = invoice.isElectronic ? 'FAC' : 'MAN';
+      (invoice as any).invoiceNumber = `${prefix}-${String(invoice.sequentialNumber).padStart(6, '0')}`;
+      (invoice as any).totalAmount = (invoice.items ?? []).reduce(
+        (acc, item) => acc + Number(item.quantity) * Number(item.product?.sellingPrice || 0),
+        0,
+      );
 
       return invoice;
     } catch (error) {
@@ -557,36 +535,49 @@ export class SalesService {
   }
 
   async searchManualBills(number: string): Promise<ManualInvoiceSearchResultDto[]> {
+    const seqNum = parseInt(number, 10);
+    const where: any = {
+      factusReferenceCode: IsNull(),
+    };
+    if (!isNaN(seqNum)) {
+      where.sequentialNumber = seqNum;
+    }
+
     const invoices = await this.invoiceRepository.find({
-      where: {
-        isElectronic: false,
-        factusReferenceCode: IsNull(),
-        invoiceNumber: Like(`%${number}%`),
-      },
+      where,
       relations: ['customer', 'items', 'items.product'],
       take: 20,
       order: { createdAt: 'DESC' },
     });
 
-    return invoices.map((inv) => ({
-      id: inv.id,
-      invoiceNumber: inv.invoiceNumber || '',
-      customer: {
-        identification: inv.customer?.documentNumber || '',
-        names: inv.customer?.name || '',
-        address: inv.customer?.address,
-        email: inv.customer?.email,
-        phone: inv.customer?.phone,
-      },
-      items: (inv.items || []).map((item) => ({
-        codeReference: item.product?.sku || item.productId,
-        name: item.product?.name || 'Producto',
-        quantity: item.quantity,
-        price: Number(item.unitPrice),
-        productId: item.productId || '',
-      })),
-      totalAmount: Number(inv.totalAmount),
-    }));
+    const result: ManualInvoiceSearchResultDto[] = invoices.map((inv) => {
+      const prefix = inv.isElectronic ? 'FAC' : 'MAN';
+      const invoiceNumber = `${prefix}-${String(inv.sequentialNumber).padStart(6, '0')}`;
+      const totalAmount = (inv.items ?? []).reduce(
+        (acc, item) => acc + Number(item.quantity) * Number(item.product?.sellingPrice || 0),
+        0,
+      );
+      return {
+        id: inv.id,
+        invoiceNumber,
+        customer: {
+          identification: inv.customer?.documentNumber || '',
+          names: inv.customer?.name || '',
+          address: inv.customer?.address,
+          email: inv.customer?.email,
+          phone: inv.customer?.phone,
+        },
+        items: (inv.items || []).map((item) => ({
+          codeReference: item.product?.sku || item.productId,
+          name: item.product?.name || 'Producto',
+          quantity: item.quantity,
+          price: Number(item.product?.sellingPrice || 0),
+          productId: item.productId || '',
+        })),
+        totalAmount,
+      };
+    });
+    return result;
   }
 
   async findAll(queryDto: QueryInvoicesDto): Promise<PaginatedResult<Invoice>> {
@@ -600,7 +591,7 @@ export class SalesService {
 
     const where = buildWhere(
       queryDto,
-      ['invoiceNumber'],
+      [],
       ['customerId', 'status'],
     );
 
@@ -623,13 +614,21 @@ export class SalesService {
     });
 
     const enriched = data.map((inv) => {
+      const prefix = inv.isElectronic ? 'FAC' : 'MAN';
+      const invoiceNumber = `${prefix}-${String(inv.sequentialNumber).padStart(6, '0')}`;
+      const totalAmount = (inv.items ?? []).reduce(
+        (acc, item) => acc + Number(item.quantity) * Number(item.product?.sellingPrice || 0),
+        0,
+      );
       const creditSum = (inv.creditNotes ?? []).reduce(
         (acc, cn) => acc + Number(cn.amount),
         0,
       );
       return {
         ...inv,
-        netTotal: Number(inv.totalAmount) - creditSum,
+        invoiceNumber,
+        totalAmount,
+        netTotal: totalAmount - creditSum,
       };
     });
 
@@ -652,6 +651,7 @@ export class SalesService {
         'items',
         'items.product',
         'items.invoiceItemTaxes',
+        'items.invoiceItemTaxes.tax',
         'emission',
       ],
     });
@@ -659,6 +659,14 @@ export class SalesService {
     if (!invoice) {
       throw new NotFoundException(`Factura con ID ${id} no encontrada`);
     }
+
+    // Compute derived fields
+    const prefix = invoice.isElectronic ? 'FAC' : 'MAN';
+    (invoice as any).invoiceNumber = `${prefix}-${String(invoice.sequentialNumber).padStart(6, '0')}`;
+    (invoice as any).totalAmount = (invoice.items ?? []).reduce(
+      (acc, item) => acc + Number(item.quantity) * Number(item.product?.sellingPrice || 0),
+      0,
+    );
 
     return invoice;
   }
@@ -702,7 +710,11 @@ export class SalesService {
       let totalCost = 0;
 
       for (const inv of invoices) {
-        totalSales += Number(inv.totalAmount);
+        const invTotal = (inv.items ?? []).reduce(
+          (acc, item) => acc + Number(item.quantity) * Number(item.product?.sellingPrice || 0),
+          0,
+        );
+        totalSales += invTotal;
         for (const item of inv.items) {
           totalCost += Number(item.purchasePrice || 0) * Number(item.quantity);
         }
@@ -827,7 +839,9 @@ export class SalesService {
       where: { invoiceId: invoice.id, noteNumber: Like(`${prefix}-%`) },
     });
     const seq = count + 1;
-    return `${prefix}-${invoice.invoiceNumber}-${seq}`;
+    const invPrefix = invoice.isElectronic ? 'FAC' : 'MAN';
+    const invNumber = `${invPrefix}-${String(invoice.sequentialNumber).padStart(6, '0')}`;
+    return `${prefix}-${invNumber}-${seq}`;
   }
 
   /**
@@ -870,13 +884,17 @@ export class SalesService {
           ii.product?.sku === dtoItem.codeReference,
       );
       if (!invoiceItem) continue;
-      const unitPrice = dtoItem.price ?? Number(invoiceItem.unitPrice);
+      const unitPrice = dtoItem.price ?? Number(invoiceItem.product?.sellingPrice || 0);
       newNoteAmount += dtoItem.quantity * unitPrice;
     }
 
-    if (existingAmount + newNoteAmount > Number(invoice.totalAmount)) {
+    const invoiceTotal = (invoice.items ?? []).reduce(
+      (acc, item) => acc + Number(item.quantity) * Number(item.product?.sellingPrice || 0),
+      0,
+    );
+    if (existingAmount + newNoteAmount > invoiceTotal) {
       throw new BadRequestException(
-        `El monto acumulado de notas de crédito (${existingAmount + newNoteAmount}) supera el total de la factura (${invoice.totalAmount})`,
+        `El monto acumulado de notas de crédito (${existingAmount + newNoteAmount}) supera el total de la factura (${invoiceTotal})`,
       );
     }
 
@@ -952,7 +970,9 @@ export class SalesService {
       let cude: string | null = null;
       let qrUrl: string | null = null;
       let publicUrl: string | null = null;
-      const referenceCode = `NC-${invoice.invoiceNumber}-${Date.now()}`;
+      const invPrefix = invoice.isElectronic ? 'FAC' : 'MAN';
+      const invNumber = `${invPrefix}-${String(invoice.sequentialNumber).padStart(6, '0')}`;
+      const referenceCode = `NC-${invNumber}-${Date.now()}`;
 
       if (isElectronic) {
         // --- Electronic path: build Factus payload and call gateway ---
@@ -961,7 +981,7 @@ export class SalesService {
         const factusPayload = {
           referenceCode,
           correctionConceptCode: dto.correctionConceptCode,
-          billNumber: dto.billNumber || invoice.emission?.number || invoice.invoiceNumber,
+          billNumber: dto.billNumber || invoice.emission?.number || invNumber,
           numberingRangeId: dto.numberingRangeId,
           observation: dto.observation || 'Anulación / Corrección de factura',
           paymentDetails: [
@@ -1173,7 +1193,9 @@ export class SalesService {
           invoice,
           creditNotes,
         );
-      const fileName = `${invoice.invoiceNumber}-historial.pdf`;
+      const invPrefix = invoice.isElectronic ? 'FAC' : 'MAN';
+      const invNumber = `${invPrefix}-${String(invoice.sequentialNumber).padStart(6, '0')}`;
+      const fileName = `${invNumber}-historial.pdf`;
       return { pdfBase64Encoded, fileName };
     } catch (error) {
       throw new InternalServerErrorException(
@@ -1233,7 +1255,7 @@ export class SalesService {
       : invoice.factusReferenceCode
         ? [invoice.factusReferenceCode]
         : [
-            `FAC-REF-${invoice.invoiceNumber || invoice.id}`,
+            `FAC-REF-${invoice.id}`,
           ];
 
     for (const code of codesToTry) {

@@ -31,9 +31,6 @@ export class Invoice {
   @Column({ name: 'sequential_number', type: 'int', generated: 'identity' })
   sequentialNumber: number;
 
-  @Column({ name: 'invoice_number', length: 50, nullable: true })
-  invoiceNumber?: string;
-
   @Column({ type: 'timestamp' })
   date: Date;
 
@@ -63,9 +60,6 @@ export class Invoice {
 
   @OneToMany(() => CreditNote, (cn) => cn.invoice)
   creditNotes: CreditNote[];
-
-  @Column({ type: 'decimal', precision: 12, scale: 2, default: 0 })
-  totalAmount: number;
 
   @Column({
     type: 'enum',

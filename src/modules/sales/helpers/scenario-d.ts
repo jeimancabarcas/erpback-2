@@ -52,19 +52,34 @@ export class ScenarioDHandler implements ScenarioHandler {
         queryRunner,
       );
 
+      const unitPrice = Number(invoiceItem.product?.sellingPrice || 0);
       const subtotal =
-        Number(invoiceItem.quantity) * Number(invoiceItem.unitPrice);
+        Number(invoiceItem.quantity) * unitPrice;
       totalAmount += subtotal;
 
-      // Reverse ALL InvoiceItemTax amounts (full reversal)
+      // Reverse ALL InvoiceItemTax amounts (full reversal — compute from Tax relation)
       const invoiceItemTaxes = invoiceItem.invoiceItemTaxes || [];
-      const noteItemTaxes = invoiceItemTaxes.map((t) => ({
-        taxId: t.taxId,
-        taxCode: t.taxCode,
-        taxName: t.taxName || '',
-        taxRate: Number(t.taxRate),
-        taxAmount: Number(t.taxAmount), // Full tax amount (100% reversal)
-      }));
+      const totalTaxRate = invoiceItemTaxes.reduce(
+        (sum, t) => sum + Number(t.tax?.percentage || 0),
+        0,
+      );
+      const priceBeforeTax =
+        totalTaxRate > 0
+          ? Number((unitPrice / (1 + totalTaxRate / 100)).toFixed(2))
+          : unitPrice;
+      const noteItemTaxes = invoiceItemTaxes.map((t) => {
+        const taxRate = Number(t.tax?.percentage || 0);
+        const taxAmount = Number(
+          ((priceBeforeTax * taxRate) / 100).toFixed(2),
+        );
+        return {
+          taxId: t.taxId,
+          taxCode: t.tax?.code || '',
+          taxName: t.tax?.name || '',
+          taxRate,
+          taxAmount,
+        };
+      });
 
       const totalTaxAmount = noteItemTaxes.reduce(
         (sum, t) => sum + t.taxAmount,
@@ -75,7 +90,7 @@ export class ScenarioDHandler implements ScenarioHandler {
         codeReference: invoiceItem.product?.sku || invoiceItem.productId,
         name: invoiceItem.product?.name || 'Producto',
         quantity: Number(invoiceItem.quantity),
-        unitPrice: Number(invoiceItem.unitPrice),
+        unitPrice,
         subtotal,
         productId: invoiceItem.productId,
         purchasePrice: Number(invoiceItem.purchasePrice),
@@ -85,7 +100,7 @@ export class ScenarioDHandler implements ScenarioHandler {
       });
 
       if (isElectronic) {
-        const unitPrice = Number(invoiceItem.unitPrice);
+        const unitPrice = Number(invoiceItem.product?.sellingPrice || 0);
         const totalTaxRate = noteItemTaxes.reduce(
           (sum, t) => sum + t.taxRate,
           0,

@@ -55,8 +55,10 @@ export class PdfGenerationService {
   }
 
   private buildHeader(doc: PDFKit.PDFDocument, invoice: Invoice): void {
+    const prefix = invoice.isElectronic ? 'FAC' : 'MAN';
+    const invNumber = `${prefix}-${String(invoice.sequentialNumber).padStart(6, '0')}`;
     doc.fontSize(18).font('Helvetica-Bold');
-    doc.text(`Historial de Factura ${invoice.invoiceNumber}`, {
+    doc.text(`Historial de Factura ${invNumber}`, {
       align: 'center',
     });
 
@@ -129,13 +131,13 @@ export class PdfGenerationService {
         { width: colWidths[1], align: 'center' },
       );
       doc.text(
-        this.formatCurrency(Number(item.unitPrice)),
+        this.formatCurrency(Number(item.product?.sellingPrice || 0)),
         colX[2],
         doc.y - doc.currentLineHeight(),
         { width: colWidths[2], align: 'center' },
       );
       doc.text(
-        this.formatCurrency(Number(item.subtotal)),
+        this.formatCurrency(Number(item.quantity) * Number(item.product?.sellingPrice || 0)),
         colX[3],
         doc.y - doc.currentLineHeight(),
         { width: colWidths[3], align: 'right' },
@@ -148,9 +150,13 @@ export class PdfGenerationService {
     doc.moveDown(0.3);
 
     doc.font('Helvetica-Bold');
+    const totalAmount = (invoice.items ?? []).reduce(
+      (acc, item) => acc + Number(item.quantity) * Number(item.product?.sellingPrice || 0),
+      0,
+    );
     doc.text('Total', colX[2], doc.y, { width: colWidths[2], align: 'center' });
     doc.text(
-      this.formatCurrency(Number(invoice.totalAmount)),
+      this.formatCurrency(totalAmount),
       colX[3],
       doc.y - doc.currentLineHeight(),
       { width: colWidths[3], align: 'right' },
@@ -229,7 +235,10 @@ export class PdfGenerationService {
     doc.moveTo(50, doc.y).lineTo(545, doc.y).stroke('#cccccc');
     doc.moveDown(0.5);
 
-    const originalTotal = Number(invoice.totalAmount);
+    const originalTotal = (invoice.items ?? []).reduce(
+      (acc, item) => acc + Number(item.quantity) * Number(item.product?.sellingPrice || 0),
+      0,
+    );
     const creditsTotal = creditNotes.reduce(
       (sum, cn) => sum + Number(cn.amount),
       0,

@@ -16,6 +16,11 @@ export type ProportionalFactor = {
   invoiceValue: number;
 };
 
+/** Helper: compute the effective per-unit price (from product.sellingPrice) */
+export function getEffectiveUnitPrice(invoiceItem: { product?: { sellingPrice?: number } }): number {
+  return Number(invoiceItem.product?.sellingPrice || 0);
+}
+
 /**
  * Applies banker's rounding (half-to-even) to 2 decimal places.
  * Also known as "round half to even" or "unbiased rounding".
@@ -52,7 +57,10 @@ function bankersRound(value: number): number {
 
 /**
  * Calculates proportional tax amounts for a credit/debit note item
- * based on the original InvoiceItemTax records.
+ * based on the original InvoiceItemTax records (with eager-loaded Tax relation).
+ *
+ * The original per-unit tax amount is computed on the fly from the Tax entity,
+ * since the denormalized tax columns have been removed from InvoiceItemTax.
  *
  * Two modes:
  * - `qty`:   taxAmount = originalTaxAmount * (noteQty / invoiceQty)
@@ -61,13 +69,14 @@ function bankersRound(value: number): number {
  * Each tax is distributed independently, rounded to 2 decimal places
  * using banker's rounding (half-to-even).
  *
- * @param invoiceItemTaxes - Original tax records from the invoice item
+ * @param invoiceItemTaxes - Original tax records from the invoice item (with eager-loaded Tax)
  * @param factor - Proportional factor with type, noteValue, and invoiceValue
  * @returns Total tax amount and per-tax breakdown
  */
 export function calculateProportionalTax(
   invoiceItemTaxes: InvoiceItemTax[],
   factor: ProportionalFactor,
+  unitPrice?: number,
 ): ProportionalTaxResult {
   // Edge cases: zero noteValue, zero invoiceValue, or empty taxes
   if (
@@ -78,18 +87,40 @@ export function calculateProportionalTax(
     return { totalTaxAmount: 0, itemTaxes: [] };
   }
 
+  // Compute total tax rate to derive priceBeforeTax
+  const totalTaxRate = invoiceItemTaxes.reduce(
+    (sum, t) => sum + Number(t.tax?.percentage || 0),
+    0,
+  );
+
+  // If unitPrice is provided, compute the original per-unit tax amount from Tax relation
+  const priceBeforeTax =
+    unitPrice !== undefined && totalTaxRate > 0
+      ? Number((unitPrice / (1 + totalTaxRate / 100)).toFixed(2))
+      : unitPrice || 0;
+
   const ratio = factor.noteValue / factor.invoiceValue;
   let totalTaxAmount = 0;
   const itemTaxes: ProportionalTaxResult['itemTaxes'] = [];
 
   for (const tax of invoiceItemTaxes) {
-    const rawAmount = Number(tax.taxAmount) * ratio;
+    const taxRate = Number(tax.tax?.percentage || 0);
+    const taxCode = tax.tax?.code || '';
+
+    // Compute original per-unit tax amount: priceBeforeTax * rate / 100
+    const originalPerUnitAmount =
+      unitPrice !== undefined
+        ? Number(((priceBeforeTax * taxRate) / 100).toFixed(2))
+        : 0;
+
+    // Apply proportional ratio (qty: noteQty/invoiceQty, price: notePrice/originalPrice)
+    const rawAmount = originalPerUnitAmount * ratio;
     const amount = bankersRound(rawAmount);
     totalTaxAmount += amount;
     itemTaxes.push({
       taxId: tax.taxId,
-      taxCode: tax.taxCode,
-      taxRate: Number(tax.taxRate),
+      taxCode,
+      taxRate,
       amount,
     });
   }
