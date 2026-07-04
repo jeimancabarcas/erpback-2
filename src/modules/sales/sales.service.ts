@@ -101,12 +101,10 @@ export class SalesService {
         );
       }
 
-      // 2. Calcular totales, verificar/consumir stock y preparar ítems de Factus
+      // 2. Calcular totales y verificar/consumir stock
       let totalAmount = 0;
-      let factusTotalAmount = 0;
       const invoiceItems: InvoiceItem[] = [];
       const allItemsTaxData: Partial<InvoiceItemTax>[][] = [];
-      const factusItems: FactusItem[] = [];
 
       for (const item of items) {
         const product = await queryRunner.manager.findOne(Product, {
@@ -146,8 +144,6 @@ export class SalesService {
 
         let itemTaxAmount = 0;
         const invoiceItemTaxes: Partial<InvoiceItemTax>[] = [];
-        const factusTaxes: FactusTax[] = [];
-
         for (const tax of taxes) {
           const taxAmt = Number(
             ((priceBeforeTax * Number(tax.percentage)) / 100).toFixed(2),
@@ -156,17 +152,7 @@ export class SalesService {
           invoiceItemTaxes.push({
             taxId: tax.id,
           });
-          factusTaxes.push({
-            code: tax.code,
-            rate: Number(tax.percentage).toFixed(2),
-            isExcluded: false,
-          });
         }
-
-        // Always compute Factus-compatible totals (emission may be created post-Factus)
-        const itemSubtotal = priceBeforeTax * item.quantity;
-        const itemTaxTotal = itemTaxAmount * item.quantity;
-        factusTotalAmount += itemSubtotal + itemTaxTotal;
 
         invoiceItems.push(
           this.invoiceItemRepository.create({
@@ -176,52 +162,6 @@ export class SalesService {
         );
 
         allItemsTaxData.push(invoiceItemTaxes);
-
-        factusItems.push({
-          codeReference: product.sku || product.id,
-          name: product.name,
-          quantity: item.quantity,
-          discountRate: 0,
-          price: priceBeforeTax,
-          unitMeasureCode: '94',
-          standardCode: '999',
-          taxes: factusTaxes,
-        });
-      }
-
-      // 3. Llamar Factus API si el gateway está configurado
-      let factusResponse: any = null;
-      if (this.factusGateway) {
-        const referenceCode = `FAC-REF-${Date.now()}`;
-
-        const factusPayload = {
-          referenceCode,
-          paymentDetails: [
-            {
-              paymentForm: '1',
-              paymentMethodCode: '10',
-              amount: factusTotalAmount.toFixed(2),
-            },
-          ],
-          customer: this.mapCustomerToFactus(customer),
-          items: factusItems,
-        };
-
-        const { paymentFormCode, paymentMethodCode } = await this.resolvePaymentConfig(
-          createDto.paymentMethodId,
-          createDto.paymentTypeId,
-        );
-        factusPayload.paymentDetails[0].paymentForm = paymentFormCode;
-        factusPayload.paymentDetails[0].paymentMethodCode = paymentMethodCode;
-
-        try {
-          factusResponse =
-            await this.factusGateway.createInvoice(factusPayload);
-        } catch (error) {
-          throw new BadRequestException(
-            `Error al emitir Factura en Factus: ${error.message}`,
-          );
-        }
       }
 
       // 4. Determinar estado de la factura según tipo de pago
@@ -277,31 +217,6 @@ export class SalesService {
         }
       }
 
-      // 9. Para electrónicas, crear la emisión
-      if (factusResponse?.data) {
-        const emission = this.invoiceEmissionRepository.create({
-          invoice: savedInvoice,
-          number: factusResponse.data.number,
-          cude:
-            factusResponse.data.cude || factusResponse.data.cufe || undefined,
-          qrUrl: factusResponse.data.qrUrl || undefined,
-          publicUrl: factusResponse.data.publicUrl || undefined,
-          isValidated: factusResponse.data.isValidated ?? false,
-          validatedAt: factusResponse.data.validatedAt
-            ? (() => {
-                const d = new Date(factusResponse.data.validatedAt);
-                return isNaN(d.getTime()) ? undefined : d;
-              })()
-            : undefined,
-          numberingRange: factusResponse.data.numberingRange || undefined,
-          items: factusResponse.data.items || undefined,
-          taxes: factusResponse.data.taxes || undefined,
-          totals: factusResponse.data.totals || undefined,
-          links: factusResponse.data.links || undefined,
-        });
-        savedInvoice.emission = await queryRunner.manager.save(emission);
-      }
-
       await queryRunner.manager.save(savedInvoice);
       await queryRunner.commitTransaction();
 
@@ -339,6 +254,12 @@ export class SalesService {
 
     if (!invoice) {
       throw new NotFoundException(`Factura con ID ${id} no encontrada`);
+    }
+
+    if (invoice.status === InvoiceStatus.CANCELLED) {
+      throw new BadRequestException(
+        'No se puede emitir electrónicamente una factura anulada',
+      );
     }
 
     if (invoice.emission) {
@@ -436,6 +357,7 @@ export class SalesService {
           paymentForm: '1',
           paymentMethodCode: '10',
           amount: factusTotalAmount.toFixed(2),
+          dueDate: this.resolveInvoiceDueDate(invoice),
         },
       ],
       customer: this.mapCustomerToFactus(invoice.customer),
@@ -793,6 +715,15 @@ export class SalesService {
     };
   }
 
+  /**
+   * Resuelve la fecha de vencimiento para payloads de Factus.
+   * Usa invoice.dueDate (crédito) → invoice.date (contado) → new Date().
+   */
+  private resolveInvoiceDueDate(invoice: Invoice): string {
+    const date = invoice.dueDate || invoice.date || new Date();
+    return new Date(date).toISOString().split('T')[0];
+  }
+
   private mapCustomerToFactus(customer: any) {
     let identificationDocumentCode = '13'; // CC
     let legalOrganizationCode = '2'; // Persona Natural
@@ -953,6 +884,7 @@ export class SalesService {
               paymentForm: '1',
               paymentMethodCode: '10',
               amount: this.computeFactusTotal(factusItems).toFixed(2),
+              dueDate: this.resolveInvoiceDueDate(invoice),
             },
           ],
           customer: this.mapCustomerToFactus(invoice.customer),
