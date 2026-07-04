@@ -1,6 +1,6 @@
 import {
   IsArray,
-  IsBoolean,
+  IsEnum,
   IsNotEmpty,
   IsNumber,
   IsOptional,
@@ -11,6 +11,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { PaymentFrequency } from '../entities/invoice.entity';
 
 class CreateInvoiceItemDto {
   @IsUUID('all', { message: 'ID de producto no válido' })
@@ -41,10 +42,6 @@ export class CreateInvoiceDto {
   @IsOptional()
   notes?: string;
 
-  @IsBoolean()
-  @IsOptional()
-  isElectronic?: boolean;
-
   @IsUUID('all', { message: 'ID de método de pago no válido' })
   @IsOptional()
   paymentMethodId?: string;
@@ -58,4 +55,8 @@ export class CreateInvoiceDto {
   @Max(120)
   @IsOptional()
   installments?: number;
+
+  @IsEnum(PaymentFrequency)
+  @IsOptional()
+  paymentFrequency?: PaymentFrequency;
 }

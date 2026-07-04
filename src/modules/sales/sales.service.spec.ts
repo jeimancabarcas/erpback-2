@@ -13,9 +13,6 @@ import { InventoryService } from '../inventory/inventory.service';
 import { PdfGenerationService } from '../pdf-generation/pdf-generation.service';
 import { PaymentMethodsService } from '../settings/services/payment-methods.service';
 import { PaymentTypesService } from '../settings/services/payment-types.service';
-import { ScenarioAHandler } from './helpers/scenario-a';
-import { ScenarioBHandler } from './helpers/scenario-b';
-import { ScenarioCHandler } from './helpers/scenario-c';
 import { ScenarioDHandler } from './helpers/scenario-d';
 
 // ---------------------------------------------------------------------------
@@ -63,8 +60,9 @@ function makeInvoice(
     notes: null as any,
     items: [],
     creditNotes: [],
-    isElectronic: false,
     emission: undefined,
+    dueDate: null,
+    paymentFrequency: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     ...overrides,
@@ -130,9 +128,6 @@ describe('SalesService.findAll — netTotal computation', () => {
         },
         { provide: PdfGenerationService, useValue: {} },
         { provide: DataSource, useValue: {} },
-        { provide: ScenarioAHandler, useValue: {} },
-        { provide: ScenarioBHandler, useValue: {} },
-        { provide: ScenarioCHandler, useValue: {} },
         { provide: ScenarioDHandler, useValue: {} },
         { provide: PaymentMethodsService, useValue: { findOne: jest.fn().mockResolvedValue({ code: '10' }), findByCode: jest.fn().mockResolvedValue({ code: '10' }) } },
         { provide: PaymentTypesService, useValue: { findOne: jest.fn().mockResolvedValue({ code: '1' }), findByCode: jest.fn().mockResolvedValue({ code: '1' }) } },
@@ -167,13 +162,9 @@ describe('SalesService.findAll — netTotal computation', () => {
 // ---------------------------------------------------------------------------
 describe('SalesService — entity defaults', () => {
   it('makeInvoice includes sequentialNumber and emission', () => {
-    const inv = makeInvoice({ sequentialNumber: 5, isElectronic: true });
+    const inv = makeInvoice({ sequentialNumber: 5 });
     expect(inv.sequentialNumber).toBe(5);
     expect(inv).toHaveProperty('emission');
-  });
-
-  it('default isElectronic is false', () => {
-    expect(makeInvoice({ isElectronic: false }).isElectronic).toBe(false);
   });
 
   it('invoice entity accepts optional paymentMethodId and paymentTypeId', () => {
@@ -206,13 +197,16 @@ describe('SalesService.create() — sequential numbering', () => {
    * Build fresh module with a queryRunner manager that simulates
    * identity-column generation for Invoice saves.
    */
-  async function build() {
+  async function build(opts?: { withGateway?: boolean }) {
     resetSeq();
-    factusGateway = {
-      createInvoice: jest
-        .fn()
-        .mockResolvedValue({ data: { number: 'SETP990001' } }),
-    };
+    const useGateway = opts?.withGateway !== false;
+    factusGateway = useGateway
+      ? {
+          createInvoice: jest
+            .fn()
+            .mockResolvedValue({ data: { number: 'SETP990001' } }),
+        }
+      : undefined;
     inventorySvc = { consumeStock: jest.fn().mockResolvedValue(0) };
     paymentTypesServiceMock = {
       findOne: jest.fn().mockResolvedValue({ code: '1' }),
@@ -237,11 +231,15 @@ describe('SalesService.create() — sequential numbering', () => {
           // Generate sequential IDENTITY only on INSERT (no id yet)
           if (entity && !entity.id && entity.customerId !== undefined) {
             const seq = nextSeq();
+            const now = new Date();
             return Promise.resolve({
               ...entity,
               id: `inv-${seq}`,
               sequentialNumber: seq,
               items: entity.items || [],
+              createdAt: now,
+              dueDate: entity.dueDate ?? null,
+              paymentFrequency: entity.paymentFrequency ?? null,
             });
           }
           // UPDATE (has id) or non-invoice entity — just pass through
@@ -292,15 +290,7 @@ describe('SalesService.create() — sequential numbering', () => {
             createQueryRunner: jest.fn().mockReturnValue(queryRunner),
           },
         },
-        {
-          provide: ScenarioAHandler,
-          useFactory: () =>
-            new ScenarioAHandler({
-              restoreStock: jest.fn().mockResolvedValue(0),
-            } as any),
-        },
-        { provide: ScenarioBHandler, useFactory: () => new ScenarioBHandler() },
-        { provide: ScenarioCHandler, useFactory: () => new ScenarioCHandler() },
+
         {
           provide: ScenarioDHandler,
           useFactory: () =>
@@ -324,10 +314,9 @@ describe('SalesService.create() — sequential numbering', () => {
   };
 
   it('manual: Factus NOT called; invoiceNumber = MAN-XXXXXX with 6-digit padding', async () => {
-    await build();
-    const r = await service.create({ ...baseDto, isElectronic: false });
-    expect(factusGateway.createInvoice).not.toHaveBeenCalled();
-    expect(r.invoiceNumber).toMatch(/^MAN-\d{6}$/);
+    await build({ withGateway: false });
+    const r = await service.create({ ...baseDto,  });
+    expect((r as any).invoiceNumber).toMatch(/^MAN-\d{6}$/);
     expect(r.sequentialNumber).toBe(1);
   });
 
@@ -352,38 +341,36 @@ describe('SalesService.create() — sequential numbering', () => {
       },
     });
 
-    const r = await service.create({ ...baseDto, isElectronic: true });
+    const r = await service.create({ ...baseDto,  });
     expect(factusGateway.createInvoice).toHaveBeenCalledTimes(1);
-    expect(r.invoiceNumber).toBe('FAC-000001');
-    expect(r.isElectronic).toBe(true);
+    expect((r as any).invoiceNumber).toBe('FAC-000001');
     expect(r.emission).toBeDefined();
     expect(r.emission!.number).toBe('SETP990003678');
   });
 
-  it('isElectronic omitted → treated as false (manual invoice)', async () => {
-    await build();
+  it('no factus gateway → manual invoice (MAN prefix)', async () => {
+    await build({ withGateway: false });
     const r = await service.create(baseDto);
-    expect(factusGateway.createInvoice).not.toHaveBeenCalled();
-    expect(r.invoiceNumber).toMatch(/^MAN-\d{6}$/);
-    expect(r.isElectronic).toBe(false);
+    expect((r as any).invoiceNumber).toMatch(/^MAN-\d{6}$/);
+    // isElectronic removed — use emission check instead
   });
 
   it('sequential creates produce incrementing numbers (1→000001, 2→000002)', async () => {
-    await build();
-    const first = await service.create({ ...baseDto, isElectronic: false });
-    expect(first.invoiceNumber).toBe('MAN-000001');
-    const second = await service.create({ ...baseDto, isElectronic: false });
-    expect(second.invoiceNumber).toBe('MAN-000002');
+    await build({ withGateway: false });
+    const first = await service.create({ ...baseDto,  });
+    expect((first as any).invoiceNumber).toBe('MAN-000001');
+    const second = await service.create({ ...baseDto,  });
+    expect((second as any).invoiceNumber).toBe('MAN-000002');
   });
 
   it('credit payment type (code 2) sets ON_CREDIT status and increments customer currentBalance', async () => {
-    await build();
+    await build({ withGateway: false });
     paymentTypesServiceMock.findOne.mockResolvedValue({ code: '2' });
 
     const r = await service.create({
       ...baseDto,
       paymentTypeId: 'credit-payment-type-id',
-      isElectronic: false,
+      
     });
     expect(r.status).toBe('ON_CREDIT');
 
@@ -395,7 +382,7 @@ describe('SalesService.create() — sequential numbering', () => {
   });
 
   it('credit payment type (code 2) increments customer currentBalance by invoice totalAmount', async () => {
-    await build();
+    await build({ withGateway: false });
     paymentTypesServiceMock.findOne.mockResolvedValue({ code: '2' });
 
     // Use 3 items to verify the balance matches totalAmount, not a fixed value
@@ -405,7 +392,7 @@ describe('SalesService.create() — sequential numbering', () => {
         { productId: 'prod-1', quantity: 3 },
       ],
       paymentTypeId: 'credit-payment-type-id',
-      isElectronic: false,
+      
     };
 
     await service.create(dto);
@@ -418,10 +405,10 @@ describe('SalesService.create() — sequential numbering', () => {
   });
 
   it('cash payment type (code 1) sets PAID status and does NOT update customer balance', async () => {
-    await build();
+    await build({ withGateway: false });
     paymentTypesServiceMock.findOne.mockResolvedValue({ code: '1' });
 
-    const r = await service.create({ ...baseDto, paymentTypeId: 'cash-payment-type-id', isElectronic: false });
+    const r = await service.create({ ...baseDto, paymentTypeId: 'cash-payment-type-id',  });
     expect(r.status).toBe('PAID');
 
     // Save should NOT have been called with a Customer entity (balance unchanged)
@@ -432,9 +419,55 @@ describe('SalesService.create() — sequential numbering', () => {
   });
 
   it('no payment type defaults to PAID status', async () => {
-    await build();
-    const r = await service.create({ ...baseDto, isElectronic: false });
+    await build({ withGateway: false });
+    const r = await service.create({ ...baseDto,  });
     expect(r.status).toBe('PAID');
+  });
+
+  // ---- Payment Frequency ----
+
+  it('credit with monthly frequency and 3 installments → dueDate = createdAt + 90 days', async () => {
+    await build({ withGateway: false });
+    paymentTypesServiceMock.findOne.mockResolvedValue({ code: '2' });
+
+    const r = await service.create({
+      ...baseDto,
+      paymentTypeId: 'credit-pt',
+      paymentFrequency: 'MONTHLY' as any,
+      installments: 3,
+    });
+    expect(r.status).toBe('ON_CREDIT');
+    expect(r.paymentFrequency).toBe('MONTHLY');
+    expect(r.dueDate).toBeDefined();
+    const expectedMs = r.createdAt.getTime() + 90 * 24 * 60 * 60 * 1000;
+    expect(r.dueDate!.getTime()).toBeCloseTo(expectedMs, -4);
+  });
+
+  it('credit with weekly frequency and 1 installment → dueDate = createdAt + 7 days', async () => {
+    await build({ withGateway: false });
+    paymentTypesServiceMock.findOne.mockResolvedValue({ code: '2' });
+
+    const r = await service.create({
+      ...baseDto,
+      paymentTypeId: 'credit-pt',
+      paymentFrequency: 'WEEKLY' as any,
+      installments: 1,
+    });
+    expect(r.dueDate).toBeDefined();
+    const expectedMs = r.createdAt.getTime() + 7 * 24 * 60 * 60 * 1000;
+    expect(r.dueDate!.getTime()).toBeCloseTo(expectedMs, -4);
+  });
+
+  it('non-credit invoice → dueDate null, paymentFrequency ignored', async () => {
+    await build({ withGateway: false });
+
+    const r = await service.create({
+      ...baseDto,
+      paymentFrequency: 'MONTHLY' as any,
+    });
+    expect(r.status).toBe('PAID');
+    expect(r.dueDate).toBeNull();
+    expect(r.paymentFrequency).toBeNull();
   });
 
   // ---- Tax calculation in create() ----
@@ -464,7 +497,7 @@ describe('SalesService.create() — sequential numbering', () => {
       },
     });
 
-    await service.create({ ...baseDto, isElectronic: true });
+    await service.create({ ...baseDto,  });
 
     expect(factusGateway.createInvoice).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -502,7 +535,7 @@ describe('SalesService.create() — sequential numbering', () => {
       data: { number: 'SETP990003679', cude: 'cude-xyz', isValidated: true },
     });
 
-    await service.create({ ...baseDto, isElectronic: true });
+    await service.create({ ...baseDto,  });
 
     expect(factusGateway.createInvoice).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -535,7 +568,7 @@ describe('SalesService.create() — sequential numbering', () => {
       data: { number: 'SETP990003680', cude: 'cude-123', isValidated: true },
     });
 
-    await service.create({ ...baseDto, isElectronic: true });
+    await service.create({ ...baseDto,  });
 
     expect(factusGateway.createInvoice).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -545,7 +578,7 @@ describe('SalesService.create() — sequential numbering', () => {
   });
 
   it('create manual: with taxed product does NOT call Factus', async () => {
-    await build();
+    await build({ withGateway: false });
     queryRunner.manager.findOne = jest
       .fn()
       .mockImplementation((_entityClass: any, opts: any) => {
@@ -559,11 +592,9 @@ describe('SalesService.create() — sequential numbering', () => {
         );
       });
 
-    const r = await service.create({ ...baseDto, isElectronic: false });
+    const r = await service.create({ ...baseDto,  });
 
-    expect(factusGateway.createInvoice).not.toHaveBeenCalled();
-    expect(r.invoiceNumber).toMatch(/^MAN-\d{6}$/);
-    expect(r.isElectronic).toBe(false);
+    expect((r as any).invoiceNumber).toMatch(/^MAN-\d{6}$/);
   });
 });
 
@@ -600,7 +631,7 @@ describe('SalesService — manual invoice paths', () => {
       id: 'inv-manual',
       sequentialNumber: 1,
       invoiceNumber: 'MAN-000001',
-      isElectronic: false,
+      
       totalAmount: 1000,
       status: InvoiceStatus.PAID,
       notes: null,
@@ -624,7 +655,7 @@ describe('SalesService — manual invoice paths', () => {
       id: 'inv-electronic',
       sequentialNumber: 2,
       invoiceNumber: 'FAC-000002',
-      isElectronic: true,
+      
       emission: null,
       ...overrides,
     });
@@ -634,7 +665,7 @@ describe('SalesService — manual invoice paths', () => {
       id: 'inv-emitted-posthoc',
       sequentialNumber: 3,
       invoiceNumber: 'MAN-000003',
-      isElectronic: true,
+      
       emission: {
         id: 'em-1',
         number: 'SETP990099',
@@ -760,15 +791,7 @@ describe('SalesService — manual invoice paths', () => {
             createQueryRunner: jest.fn().mockReturnValue(queryRunner),
           },
         },
-        {
-          provide: ScenarioAHandler,
-          useFactory: () =>
-            new ScenarioAHandler({
-              restoreStock: jest.fn().mockResolvedValue(0),
-            } as any),
-        },
-        { provide: ScenarioBHandler, useFactory: () => new ScenarioBHandler() },
-        { provide: ScenarioCHandler, useFactory: () => new ScenarioCHandler() },
+
         {
           provide: ScenarioDHandler,
           useFactory: () =>
@@ -877,7 +900,7 @@ describe('SalesService — manual invoice paths', () => {
 
     const r = await service.emit('inv-manual');
     expect(factusGateway.createInvoice).toHaveBeenCalledTimes(1);
-    expect(r.isElectronic).toBe(true);
+    // isElectronic removed — use emission check instead
     expect(r.emission).toBeDefined();
     expect(r.emission!.number).toBe('SETP990003678');
     expect(r.emission!.cude).toBe('cufe-abc-123');
@@ -904,14 +927,20 @@ describe('SalesService — manual invoice paths', () => {
       });
 
     const r = await service.emit('inv-emit');
-    expect(r.invoiceNumber).toBe('FAC-000042');
+    expect((r as any).invoiceNumber).toBe('FAC-000042');
     expect(r.emission!.number).toBe('SETP990003678');
-    expect(r.isElectronic).toBe(true);
+    // isElectronic removed — use emission check instead
   });
 
-  it('emit() throws for already-electronic invoice', async () => {
-    await expect(service.emit('inv-electronic')).rejects.toThrow(
-      'ya es electrónica',
+  it('emit() throws for invoice with existing emission', async () => {
+    invoiceRepo.findOne = jest.fn().mockResolvedValue(
+      buildManualInv({
+        id: 'inv-emitted',
+        emission: { id: 'em-1', number: 'SETP990099' } as any,
+      }),
+    );
+    await expect(service.emit('inv-emitted')).rejects.toThrow(
+      'ya tiene una emisión',
     );
   });
 
@@ -972,24 +1001,6 @@ describe('SalesService — manual invoice paths', () => {
 
   // ---- createCreditNote ----
 
-  it('createCreditNote for manual invoice creates local note, no Factus call (ScenarioA)', async () => {
-    // ScenarioA requires items with productId
-    const dto = {
-      correctionConceptCode: '1',
-      items: [
-        {
-          codeReference: 'SKU-001',
-          quantity: 1,
-          price: 500,
-          productId: 'prod-1',
-        },
-      ],
-    };
-    const r = await service.createCreditNote('inv-manual', dto);
-    expect(factusGateway.createCreditNote).not.toHaveBeenCalled();
-    expect((r as any).noteNumber).toContain('NC-MAN');
-  });
-
   it('createCreditNote for manual invoice with concept 2 sets invoice CANCELLED', async () => {
     const cancelInv = buildManualInv({
       id: 'inv-cancel',
@@ -1049,15 +1060,7 @@ describe('SalesService — manual invoice paths', () => {
           provide: DataSource,
           useValue: { createQueryRunner: jest.fn().mockReturnValue(qr) },
         },
-        {
-          provide: ScenarioAHandler,
-          useFactory: () =>
-            new ScenarioAHandler({
-              restoreStock: jest.fn().mockResolvedValue(0),
-            } as any),
-        },
-        { provide: ScenarioBHandler, useFactory: () => new ScenarioBHandler() },
-        { provide: ScenarioCHandler, useFactory: () => new ScenarioCHandler() },
+
         {
           provide: ScenarioDHandler,
           useFactory: () =>
@@ -1072,55 +1075,6 @@ describe('SalesService — manual invoice paths', () => {
     const svc = mod.get(SalesService);
     await svc.createCreditNote('inv-cancel', { correctionConceptCode: '2' });
     expect(cancelInv.status).toBe(InvoiceStatus.CANCELLED);
-  });
-
-  it('createCreditNote for electronic invoice calls Factus (ScenarioA)', async () => {
-    const dto = {
-      correctionConceptCode: '1',
-      isElectronic: true,
-      items: [
-        {
-          codeReference: 'SKU-001',
-          quantity: 1,
-          price: 500,
-          productId: 'prod-1',
-        },
-      ],
-    };
-    await service.createCreditNote('inv-electronic', dto);
-    expect(factusGateway.createCreditNote).toHaveBeenCalledTimes(1);
-  });
-
-  it('createCreditNote for manual rejects non-existent item', async () => {
-    await expect(
-      service.createCreditNote('inv-manual', {
-        correctionConceptCode: '1',
-        items: [
-          {
-            codeReference: 'NO-SKU',
-            quantity: 1,
-            price: 500,
-            productId: 'prod-x',
-          },
-        ],
-      } as any),
-    ).rejects.toThrow('no pertenece');
-  });
-
-  it('createCreditNote for manual rejects qty exceeding invoice', async () => {
-    await expect(
-      service.createCreditNote('inv-manual', {
-        correctionConceptCode: '1',
-        items: [
-          {
-            codeReference: 'SKU-001',
-            quantity: 99,
-            price: 500,
-            productId: 'prod-1',
-          },
-        ],
-      } as any),
-    ).rejects.toThrow('supera');
   });
 
   it('createCreditNote for cancelled invoice is rejected', async () => {
@@ -1177,15 +1131,7 @@ describe('SalesService — manual invoice paths', () => {
           provide: DataSource,
           useValue: { createQueryRunner: jest.fn().mockReturnValue(qr) },
         },
-        {
-          provide: ScenarioAHandler,
-          useFactory: () =>
-            new ScenarioAHandler({
-              restoreStock: jest.fn().mockResolvedValue(0),
-            } as any),
-        },
-        { provide: ScenarioBHandler, useFactory: () => new ScenarioBHandler() },
-        { provide: ScenarioCHandler, useFactory: () => new ScenarioCHandler() },
+
         {
           provide: ScenarioDHandler,
           useFactory: () =>
@@ -1203,31 +1149,6 @@ describe('SalesService — manual invoice paths', () => {
     ).rejects.toThrow('anuladas');
   });
 
-  // ---- isElectronic filter ----
-
-  it('findAll with isElectronic=true filters correctly', async () => {
-    const inv = buildElectronicInv();
-    invoiceRepo.findAndCount = jest.fn().mockResolvedValue([[inv], 1]);
-    const r = await service.findAll({ isElectronic: true });
-    expect(invoiceRepo.findAndCount).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({ isElectronic: true }),
-      }),
-    );
-    expect(r.data).toHaveLength(1);
-  });
-
-  it('findAll with isElectronic=false filters correctly', async () => {
-    const inv = buildManualInv();
-    invoiceRepo.findAndCount = jest.fn().mockResolvedValue([[inv], 1]);
-    const r = await service.findAll({ isElectronic: false });
-    expect(invoiceRepo.findAndCount).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({ isElectronic: false }),
-      }),
-    );
-    expect(r.data).toHaveLength(1);
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1263,7 +1184,7 @@ describe('SalesService — guard: electronic note for manual invoice', () => {
       id: 'inv-manual',
       sequentialNumber: 1,
       invoiceNumber: 'MAN-000001',
-      isElectronic: false,
+      
       totalAmount: 1000,
       status: InvoiceStatus.PAID,
       notes: null,
@@ -1288,7 +1209,7 @@ describe('SalesService — guard: electronic note for manual invoice', () => {
       id: 'inv-electronic',
       sequentialNumber: 2,
       invoiceNumber: 'FAC-000002',
-      isElectronic: true,
+      
       ...overrides,
     });
   }
@@ -1399,15 +1320,7 @@ describe('SalesService — guard: electronic note for manual invoice', () => {
             createQueryRunner: jest.fn().mockReturnValue(queryRunner),
           },
         },
-        {
-          provide: ScenarioAHandler,
-          useFactory: () =>
-            new ScenarioAHandler({
-              restoreStock: jest.fn().mockResolvedValue(0),
-            } as any),
-        },
-        { provide: ScenarioBHandler, useFactory: () => new ScenarioBHandler() },
-        { provide: ScenarioCHandler, useFactory: () => new ScenarioCHandler() },
+
         {
           provide: ScenarioDHandler,
           useFactory: () =>
@@ -1433,36 +1346,22 @@ describe('SalesService — guard: electronic note for manual invoice', () => {
     ];
   }
 
-  it('createCreditNote: rejects electronic note for manual invoice', async () => {
+  it('createCreditNote: code 2 creates manual note for manual invoice', async () => {
     const dto = {
-      correctionConceptCode: '1',
-      isElectronic: true,
-      items: makeItemsForScenario(),
-    };
-    await expect(
-      service.createCreditNote('inv-manual', dto as any),
-    ).rejects.toThrow(
-      'electrónicas solo pueden emitirse para facturas electrónicas',
-    );
-  });
-
-  it('createCreditNote: allows manual note for manual invoice', async () => {
-    const dto = {
-      correctionConceptCode: '1',
-      isElectronic: false,
-      items: makeItemsForScenario(),
+      correctionConceptCode: '2',
     };
     const r = await service.createCreditNote('inv-manual', dto);
     expect((r as any).noteNumber).toContain('NC-MAN');
     expect(factusGateway.createCreditNote).not.toHaveBeenCalled();
   });
 
-  it('createCreditNote: allows electronic note for electronic invoice (ScenarioA)', async () => {
+  it('createCreditNote: code 2 creates electronic note for electronic invoice', async () => {
     const dto = {
-      correctionConceptCode: '1',
-      isElectronic: true,
-      items: makeItemsForScenario(),
+      correctionConceptCode: '2',
     };
+    invoiceRepo.findOne = jest.fn().mockResolvedValue(
+      buildElectronicInv({ emission: { id: 'em-1', number: 'FAC-001' } }),
+    );
     await service.createCreditNote('inv-electronic', dto);
     expect(factusGateway.createCreditNote).toHaveBeenCalledTimes(1);
   });
@@ -1501,7 +1400,7 @@ describe('SalesService — validateCumulativeLimits', () => {
     return {
       id: 'inv-manual',
       sequentialNumber: 1,
-      isElectronic: false,
+      
       status: InvoiceStatus.PAID,
       notes: null,
       creditNotes: [],
@@ -1622,15 +1521,7 @@ describe('SalesService — validateCumulativeLimits', () => {
             createQueryRunner: jest.fn().mockReturnValue(queryRunner),
           },
         },
-        {
-          provide: ScenarioAHandler,
-          useFactory: () =>
-            new ScenarioAHandler({
-              restoreStock: jest.fn().mockResolvedValue(0),
-            } as any),
-        },
-        { provide: ScenarioBHandler, useFactory: () => new ScenarioBHandler() },
-        { provide: ScenarioCHandler, useFactory: () => new ScenarioCHandler() },
+
         {
           provide: ScenarioDHandler,
           useFactory: () =>
@@ -1645,11 +1536,11 @@ describe('SalesService — validateCumulativeLimits', () => {
     service = mod.get(SalesService);
   });
 
-  // --- 1.1: cumulative amount exceeds invoice total (60%+50%→400) ---
-  it('1.1 rejects when cumulative amount exceeds invoice total (600 existing + 500 new > 1000)', async () => {
+  // --- 1.1: code '2' blocked when existing credit notes exist ---
+  it('1.1 rejects total annulment (code 2) when credit notes already exist', async () => {
     qbMock.getRawOne.mockResolvedValue({ total: '600' });
     const dto = {
-      correctionConceptCode: '1',
+      correctionConceptCode: '2',
       items: [
         {
           codeReference: 'SKU-001',
@@ -1660,124 +1551,20 @@ describe('SalesService — validateCumulativeLimits', () => {
       ],
     };
     await expect(service.createCreditNote('inv-1', dto as any)).rejects.toThrow(
-      /supera el total/,
+      /ya existen notas de crédito/,
     );
   });
 
   // --- 1.2: single 110% note also rejected ---
-  it('1.2 rejects single credit note exceeding invoice total (0 existing + 1100 new > 1000)', async () => {
+  it('1.2 rejects single total annulment exceeding invoice total (1100 > 1000)', async () => {
     qbMock.getRawOne.mockResolvedValue({ total: '0' });
-    // qty=10 (within invoice qty of 10), price=110 → amount=1100 > 1000
     const dto = {
-      correctionConceptCode: '1',
+      correctionConceptCode: '2',
       items: [
         {
           codeReference: 'SKU-001',
           quantity: 10,
           price: 110,
-          productId: 'prod-1',
-        },
-      ],
-    };
-    await expect(service.createCreditNote('inv-1', dto as any)).rejects.toThrow(
-      /supera el total/,
-    );
-  });
-
-  // --- 1.3: amount within limits (60%+40%) passes ---
-  it('1.3 accepts when cumulative amount is within invoice total (600 existing + 400 new <= 1000)', async () => {
-    qbMock.getRawOne.mockResolvedValue({ total: '600' });
-    const dto = {
-      correctionConceptCode: '1',
-      items: [
-        {
-          codeReference: 'SKU-001',
-          quantity: 2,
-          price: 200,
-          productId: 'prod-1',
-        },
-      ],
-    };
-    const r = await service.createCreditNote('inv-1', dto);
-    expect(r).toBeDefined();
-    expect((r as any).noteNumber).toContain('NC-MAN');
-  });
-
-  // --- 1.4: cumulative qty per product exceeds item limit for A/D ---
-  it('1.4 rejects when cumulative quantity per product exceeds invoice item limit for scenario A (6 existing + 5 new > 10)', async () => {
-    qbMock.getRawOne.mockResolvedValue({ total: '0' });
-    qbMock.getRawMany.mockResolvedValue([
-      { productId: 'prod-1', totalQty: '6' },
-    ]);
-    const dto = {
-      correctionConceptCode: '1',
-      items: [
-        {
-          codeReference: 'SKU-001',
-          quantity: 5,
-          price: 100,
-          productId: 'prod-1',
-        },
-      ],
-    };
-    await expect(service.createCreditNote('inv-1', dto as any)).rejects.toThrow(
-      /supera la cantidad/,
-    );
-  });
-
-  // --- 1.5: qty check skipped for scenario B (discount) and C (price correction) ---
-  it('1.5 skips quantity check for scenario B (discount, code 3) — no throw even if qty would exceed', async () => {
-    qbMock.getRawOne.mockResolvedValue({ total: '0' });
-    qbMock.getRawMany.mockResolvedValue([
-      { productId: 'prod-1', totalQty: '9' },
-    ]);
-    // Scenario B requires price < original (100), no qty validation
-    const dto = {
-      correctionConceptCode: '3',
-      items: [
-        {
-          codeReference: 'SKU-001',
-          quantity: 5,
-          price: 90,
-          productId: 'prod-1',
-        },
-      ],
-    };
-    const r = await service.createCreditNote('inv-1', dto);
-    expect(r).toBeDefined();
-  });
-
-  it('1.5b skips quantity check for scenario C (price correction, code 4) — no throw even if qty would exceed', async () => {
-    qbMock.getRawOne.mockResolvedValue({ total: '0' });
-    qbMock.getRawMany.mockResolvedValue([
-      { productId: 'prod-1', totalQty: '9' },
-    ]);
-    // Scenario C requires price < original (100), no qty validation
-    const dto = {
-      correctionConceptCode: '4',
-      items: [
-        {
-          codeReference: 'SKU-001',
-          quantity: 5,
-          price: 90,
-          productId: 'prod-1',
-        },
-      ],
-    };
-    const r = await service.createCreditNote('inv-1', dto);
-    expect(r).toBeDefined();
-  });
-
-  // --- 1.6: concurrent 60%+60% — second fails ---
-  it('1.6 simulates concurrent 60%+60%: second request sees 600 existing and fails', async () => {
-    qbMock.getRawOne.mockResolvedValue({ total: '600' });
-    const dto = {
-      correctionConceptCode: '1',
-      items: [
-        {
-          codeReference: 'SKU-001',
-          quantity: 6,
-          price: 100,
           productId: 'prod-1',
         },
       ],
@@ -1825,9 +1612,6 @@ describe('SalesService.searchManualBills', () => {
         },
         { provide: PdfGenerationService, useValue: {} },
         { provide: DataSource, useValue: {} },
-        { provide: ScenarioAHandler, useValue: {} },
-        { provide: ScenarioBHandler, useValue: {} },
-        { provide: ScenarioCHandler, useValue: {} },
         { provide: ScenarioDHandler, useValue: {} },
         {
           provide: PaymentMethodsService,
@@ -1851,7 +1635,7 @@ describe('SalesService.searchManualBills', () => {
   const manualInvoiceTemplate = {
     id: 'inv-manual-1',
     sequentialNumber: 42,
-    isElectronic: false,
+    
     status: InvoiceStatus.PAID,
     notes: null,
     creditNotes: [],

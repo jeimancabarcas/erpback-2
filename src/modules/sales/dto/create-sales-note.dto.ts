@@ -4,14 +4,13 @@ import {
   IsOptional,
   IsString,
   IsNumber,
-  IsBoolean,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
 /**
  * Represents a single item in a sales note (credit/debit) request.
- * Items are reused across all six scenarios (A–F), with optional fields
+ * Items are reused across all scenarios (credit: D; debit: E, F), with optional fields
  * used or ignored depending on the scenario context.
  */
 export class CreateSalesNoteItemDto {
@@ -27,8 +26,8 @@ export class CreateSalesNoteItemDto {
 
   /**
    * Adjusted unit price for this item.
-   * Required for scenarios B (discount), C (price correction), and F (undercharge).
-   * For scenarios A (partial return) and D (total annulment), the original invoice price is used.
+   * Required for scenario F (undercharge — debit notes only).
+   * For scenario D (total annulment), the original invoice price is used.
    */
   @IsNumber()
   @IsOptional()
@@ -38,7 +37,6 @@ export class CreateSalesNoteItemDto {
    * Product UUID (foreign key to Product entity).
    * Optional because some scenarios operate without inventory impact (e.g., Scenario E — financial interest).
    * REQUIRED for scenarios that affect inventory:
-   *   - Scenario A (partial return): restoreStock needs productId
    *   - Scenario D (total annulment): restoreStock needs productId per item
    * When omitted for inventory-impact scenarios, the handler throws BadRequestException.
    */
@@ -48,7 +46,7 @@ export class CreateSalesNoteItemDto {
 
   /**
    * Maps to the DIAN correctionConceptCode that determines which scenario handler is invoked.
-   * For credit notes: '1'/'5' → A (partial return), '3' → B (discount), '4' → C (price correction), '2' → D (total annulment)
+   * For credit notes: '2' → D (total annulment)
    * This field is informational; the actual routing happens via `CreateSalesNoteDto.correctionConceptCode`.
    */
   @IsString()
@@ -78,10 +76,6 @@ export class CreateSalesNoteDto {
   @ValidateNested({ each: true })
   @Type(() => CreateSalesNoteItemDto)
   items?: CreateSalesNoteItemDto[];
-
-  @IsOptional()
-  @IsBoolean()
-  isElectronic?: boolean;
 
   /**
    * Human-readable scenario type for debugging/logging.

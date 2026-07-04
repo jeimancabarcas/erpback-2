@@ -266,7 +266,7 @@ describe('ElectronicBillsService', () => {
     const manualInvoice = {
       id: 'inv-manual-1',
       sequentialNumber: 42,
-      isElectronic: false,
+
       customer: {
         documentNumber: '123456789',
         name: 'Test Customer',
@@ -504,7 +504,7 @@ describe('ElectronicBillsService', () => {
     const manualInvoiceWithTaxes = {
       id: 'inv-manual-tax',
       sequentialNumber: 50,
-      isElectronic: false,
+
       customer: { documentNumber: '123456789', name: 'Test' },
       items: [
         {

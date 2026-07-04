@@ -90,7 +90,7 @@ export class ElectronicBillsService {
           0,
         );
 
-        const invPrefix = manualInvoice.isElectronic ? 'FAC' : 'MAN';
+        const invPrefix = manualInvoice.emission ? 'FAC' : 'MAN';
         const invNumber = `${invPrefix}-${String(manualInvoice.sequentialNumber).padStart(6, '0')}`;
         if (Math.abs(dtoTotal - invoiceTotal) > 0.01) {
           warning = `Los valores han cambiado. La factura NO quedará vinculada a la factura manual ${invNumber}.`;

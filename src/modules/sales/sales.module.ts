@@ -13,9 +13,6 @@ import { InventoryModule } from '../inventory/inventory.module';
 import { FactusModule } from '../factus/factus.module';
 import { PdfGenerationModule } from '../pdf-generation/pdf-generation.module';
 import { SettingsModule } from '../settings/settings.module';
-import { ScenarioAHandler } from './helpers/scenario-a';
-import { ScenarioBHandler } from './helpers/scenario-b';
-import { ScenarioCHandler } from './helpers/scenario-c';
 import { ScenarioDHandler } from './helpers/scenario-d';
 
 @Module({
@@ -37,9 +34,6 @@ import { ScenarioDHandler } from './helpers/scenario-d';
   controllers: [SalesController],
   providers: [
     SalesService,
-    ScenarioAHandler,
-    ScenarioBHandler,
-    ScenarioCHandler,
     ScenarioDHandler,
   ],
   exports: [

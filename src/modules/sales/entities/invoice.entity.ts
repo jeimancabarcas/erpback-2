@@ -23,6 +23,24 @@ export enum InvoiceStatus {
   ON_CREDIT = 'ON_CREDIT',
 }
 
+export enum PaymentFrequency {
+  DAILY = 'DAILY',
+  WEEKLY = 'WEEKLY',
+  BIWEEKLY = 'BIWEEKLY',
+  MONTHLY = 'MONTHLY',
+  QUARTERLY = 'QUARTERLY',
+  YEARLY = 'YEARLY',
+}
+
+export const FREQUENCY_DAYS: Record<PaymentFrequency, number> = {
+  [PaymentFrequency.DAILY]: 1,
+  [PaymentFrequency.WEEKLY]: 7,
+  [PaymentFrequency.BIWEEKLY]: 14,
+  [PaymentFrequency.MONTHLY]: 30,
+  [PaymentFrequency.QUARTERLY]: 90,
+  [PaymentFrequency.YEARLY]: 365,
+};
+
 @Entity('invoices')
 export class Invoice {
   @PrimaryGeneratedColumn('uuid')
@@ -68,9 +86,6 @@ export class Invoice {
   })
   status: InvoiceStatus;
 
-  @Column({ name: 'is_electronic', default: false })
-  isElectronic: boolean;
-
   @OneToOne(() => InvoiceElectronicEmission, (emission) => emission.invoice, {
     nullable: true,
   })
@@ -81,6 +96,17 @@ export class Invoice {
 
   @Column({ name: 'installments', type: 'int', default: 1, nullable: true })
   installments?: number;
+
+  @Column({ name: 'due_date', type: 'date', nullable: true })
+  dueDate: Date | null;
+
+  @Column({
+    name: 'payment_frequency',
+    type: 'enum',
+    enum: PaymentFrequency,
+    nullable: true,
+  })
+  paymentFrequency: PaymentFrequency | null;
 
   @Column({ name: 'factus_reference_code', type: 'varchar', nullable: true })
   factusReferenceCode?: string;

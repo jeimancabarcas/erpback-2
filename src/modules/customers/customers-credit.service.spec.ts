@@ -176,7 +176,7 @@ describe('CustomersCreditService', () => {
       const invoice = {
         id: 'inv-1',
         sequentialNumber: 1,
-        isElectronic: false,
+
         status: InvoiceStatus.ON_CREDIT,
         items: [{ quantity: 10, product: { sellingPrice: 100000 } }],
         creditNotes: [],
@@ -215,7 +215,7 @@ describe('CustomersCreditService', () => {
       const invoice = {
         id: 'inv-1',
         sequentialNumber: 1,
-        isElectronic: false,
+
         status: InvoiceStatus.ON_CREDIT,
         items: [{ quantity: 1, product: { sellingPrice: 1000000 } }],
         creditNotes: [],
@@ -245,7 +245,7 @@ describe('CustomersCreditService', () => {
       const invoice = {
         id: 'inv-1',
         sequentialNumber: 1,
-        isElectronic: false,
+
         status: InvoiceStatus.ON_CREDIT,
         items: [{ quantity: 10, product: { sellingPrice: 120000 } }],
         creditNotes: [],

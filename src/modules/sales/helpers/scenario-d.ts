@@ -41,7 +41,7 @@ export class ScenarioDHandler implements ScenarioHandler {
     let totalAmount = 0;
     const items: PreparedNoteItem[] = [];
     const factusItems: any[] = [];
-    const isElectronic = dto.isElectronic ?? invoice.isElectronic;
+    const isElectronic = !!invoice.emission;
 
     // Loop ALL invoice items for full annulment
     for (const invoiceItem of invoice.items) {
@@ -93,7 +93,6 @@ export class ScenarioDHandler implements ScenarioHandler {
         unitPrice,
         subtotal,
         productId: invoiceItem.productId,
-        purchasePrice: Number(invoiceItem.purchasePrice),
         taxAmount: totalTaxAmount,
         restored: true,
         noteItemTaxes,

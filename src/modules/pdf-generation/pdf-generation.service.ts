@@ -55,7 +55,7 @@ export class PdfGenerationService {
   }
 
   private buildHeader(doc: PDFKit.PDFDocument, invoice: Invoice): void {
-    const prefix = invoice.isElectronic ? 'FAC' : 'MAN';
+    const prefix = invoice.emission ? 'FAC' : 'MAN';
     const invNumber = `${prefix}-${String(invoice.sequentialNumber).padStart(6, '0')}`;
     doc.fontSize(18).font('Helvetica-Bold');
     doc.text(`Historial de Factura ${invNumber}`, {

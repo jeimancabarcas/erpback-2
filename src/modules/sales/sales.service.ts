@@ -7,9 +7,10 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, Between, Like, EntityManager, IsNull } from 'typeorm';
-import { Invoice, InvoiceStatus } from './entities/invoice.entity';
+import { Invoice, InvoiceStatus, PaymentFrequency, FREQUENCY_DAYS } from './entities/invoice.entity';
 import { InvoiceItem } from './entities/invoice-item.entity';
 import { InvoiceElectronicEmission } from './entities/invoice-electronic-emission.entity';
+import { InventoryBatch } from '../inventory/entities/inventory-batch.entity';
 import { CreditNote } from './entities/credit-note.entity';
 import { CreditNoteItem } from './entities/credit-note-item.entity';
 import { CreditNoteItemTax } from './entities/credit-note-item-tax.entity';
@@ -36,9 +37,6 @@ import {
   ScenarioParams,
   ScenarioResult,
 } from './helpers/scenario-handler.interface';
-import { ScenarioAHandler } from './helpers/scenario-a';
-import { ScenarioBHandler } from './helpers/scenario-b';
-import { ScenarioCHandler } from './helpers/scenario-c';
 import { ScenarioDHandler } from './helpers/scenario-d';
 
 @Injectable()
@@ -64,9 +62,6 @@ export class SalesService {
     private readonly paymentTypesService: PaymentTypesService,
     private readonly dataSource: DataSource,
     // Scenario handlers (injected for DI)
-    private readonly scenarioAHandler: ScenarioAHandler,
-    private readonly scenarioBHandler: ScenarioBHandler,
-    private readonly scenarioCHandler: ScenarioCHandler,
     private readonly scenarioDHandler: ScenarioDHandler,
   ) {
     this.buildScenarioMaps();
@@ -76,16 +71,9 @@ export class SalesService {
 
   /**
    * Builds the handler lookup map for credit note scenarios.
-   *   - '1' / '5' → ScenarioA (partial return)
-   *   - '3'       → ScenarioB (discount)
-   *   - '4'       → ScenarioC (price correction / overcharge)
-   *   - '2'       → ScenarioD (total annulment)
+   *   - '2' → ScenarioD (total annulment)
    */
   private buildScenarioMaps(): void {
-    this.creditScenarioMap['1'] = this.scenarioAHandler;
-    this.creditScenarioMap['5'] = this.scenarioAHandler;
-    this.creditScenarioMap['3'] = this.scenarioBHandler;
-    this.creditScenarioMap['4'] = this.scenarioCHandler;
     this.creditScenarioMap['2'] = this.scenarioDHandler;
   }
 
@@ -114,7 +102,6 @@ export class SalesService {
       }
 
       // 2. Calcular totales, verificar/consumir stock y preparar ítems de Factus
-      const isElectronic = createDto.isElectronic === true;
       let totalAmount = 0;
       let factusTotalAmount = 0;
       const invoiceItems: InvoiceItem[] = [];
@@ -137,12 +124,11 @@ export class SalesService {
             ? Number(item.unitPrice)
             : Number(product.sellingPrice);
 
-        const totalItemCost = await this.inventoryService.consumeStock(
+        await this.inventoryService.consumeStock(
           item.productId,
           item.quantity,
           queryRunner.manager,
         );
-        const purchasePrice = totalItemCost / item.quantity;
 
         const subtotal = item.quantity * unitPrice;
         totalAmount += subtotal;
@@ -177,17 +163,15 @@ export class SalesService {
           });
         }
 
-        if (isElectronic) {
-          const itemSubtotal = priceBeforeTax * item.quantity;
-          const itemTaxTotal = itemTaxAmount * item.quantity;
-          factusTotalAmount += itemSubtotal + itemTaxTotal;
-        }
+        // Always compute Factus-compatible totals (emission may be created post-Factus)
+        const itemSubtotal = priceBeforeTax * item.quantity;
+        const itemTaxTotal = itemTaxAmount * item.quantity;
+        factusTotalAmount += itemSubtotal + itemTaxTotal;
 
         invoiceItems.push(
           this.invoiceItemRepository.create({
             productId: item.productId,
             quantity: item.quantity,
-            purchasePrice,
           }),
         );
 
@@ -205,9 +189,9 @@ export class SalesService {
         });
       }
 
-      // 3. Para electrónicas, llamar Factus API primero
+      // 3. Llamar Factus API si el gateway está configurado
       let factusResponse: any = null;
-      if (isElectronic) {
+      if (this.factusGateway) {
         const referenceCode = `FAC-REF-${Date.now()}`;
 
         const factusPayload = {
@@ -223,14 +207,12 @@ export class SalesService {
           items: factusItems,
         };
 
-        if (isElectronic) {
-          const { paymentFormCode, paymentMethodCode } = await this.resolvePaymentConfig(
-            createDto.paymentMethodId,
-            createDto.paymentTypeId,
-          );
-          factusPayload.paymentDetails[0].paymentForm = paymentFormCode;
-          factusPayload.paymentDetails[0].paymentMethodCode = paymentMethodCode;
-        }
+        const { paymentFormCode, paymentMethodCode } = await this.resolvePaymentConfig(
+          createDto.paymentMethodId,
+          createDto.paymentTypeId,
+        );
+        factusPayload.paymentDetails[0].paymentForm = paymentFormCode;
+        factusPayload.paymentDetails[0].paymentMethodCode = paymentMethodCode;
 
         try {
           factusResponse =
@@ -252,12 +234,12 @@ export class SalesService {
         }
       }
 
-      // 5. Crear la factura local
+      // 5. Crear la factura local (paymentFrequency is set separately for credit invoices)
+      const { paymentFrequency, ...restInvoiceData } = invoiceData;
       const invoice = this.invoiceRepository.create({
-        ...invoiceData,
+        ...restInvoiceData,
         date: invoiceData.date || new Date(),
         status: invoiceStatus,
-        isElectronic: createDto.isElectronic ?? false,
         installments: createDto.installments ?? undefined,
         items: invoiceItems,
       });
@@ -282,10 +264,21 @@ export class SalesService {
         customer.currentBalance =
           (Number(customer.currentBalance) || 0) + totalAmount;
         await queryRunner.manager.save(Customer, customer);
+
+        // 8a. Calcular fecha de vencimiento si se especificó frecuencia de pago
+        if (createDto.paymentFrequency) {
+          const freqDays = FREQUENCY_DAYS[createDto.paymentFrequency];
+          const installments = createDto.installments || 1;
+          const dueDate = new Date(savedInvoice.createdAt);
+          dueDate.setDate(dueDate.getDate() + freqDays * installments);
+          savedInvoice.dueDate = dueDate;
+          savedInvoice.paymentFrequency = createDto.paymentFrequency;
+          await queryRunner.manager.save(savedInvoice);
+        }
       }
 
       // 9. Para electrónicas, crear la emisión
-      if (isElectronic && factusResponse?.data) {
+      if (factusResponse?.data) {
         const emission = this.invoiceEmissionRepository.create({
           invoice: savedInvoice,
           number: factusResponse.data.number,
@@ -313,7 +306,7 @@ export class SalesService {
       await queryRunner.commitTransaction();
 
       // Attach computed fields before returning
-      const prefix = savedInvoice.isElectronic ? 'FAC' : 'MAN';
+      const prefix = savedInvoice.emission ? 'FAC' : 'MAN';
       (savedInvoice as any).invoiceNumber = `${prefix}-${String(savedInvoice.sequentialNumber).padStart(6, '0')}`;
       (savedInvoice as any).totalAmount = (savedInvoice.items ?? []).reduce(
         (acc, item) => acc + Number(item.quantity) * Number(item.product?.sellingPrice || 0),
@@ -352,10 +345,6 @@ export class SalesService {
       throw new BadRequestException(
         'La factura ya tiene una emisión registrada',
       );
-    }
-
-    if (invoice.isElectronic) {
-      throw new BadRequestException('La factura ya es electrónica');
     }
 
     // Build Factus payload from existing invoice data
@@ -415,7 +404,7 @@ export class SalesService {
 
     // Use stored reference code if available, otherwise generate a new one
     // Store it on the invoice so we can retry/destroy if Factus fails
-    const prefix = invoice.isElectronic ? 'FAC' : 'MAN';
+    const prefix = invoice.emission ? 'FAC' : 'MAN';
     const invNumber = `${prefix}-${String(invoice.sequentialNumber).padStart(6, '0')}`;
     const referenceCode =
       invoice.factusReferenceCode ||
@@ -496,7 +485,6 @@ export class SalesService {
         links: factusResponse.data.links || undefined,
       });
 
-      invoice.isElectronic = true;
       invoice.emission = await queryRunner.manager.save(emission);
       await queryRunner.manager.save(invoice);
 
@@ -516,7 +504,7 @@ export class SalesService {
       await queryRunner.commitTransaction();
 
       // Attach computed fields before returning
-      const prefix = invoice.isElectronic ? 'FAC' : 'MAN';
+      const prefix = invoice.emission ? 'FAC' : 'MAN';
       (invoice as any).invoiceNumber = `${prefix}-${String(invoice.sequentialNumber).padStart(6, '0')}`;
       (invoice as any).totalAmount = (invoice.items ?? []).reduce(
         (acc, item) => acc + Number(item.quantity) * Number(item.product?.sellingPrice || 0),
@@ -551,7 +539,7 @@ export class SalesService {
     });
 
     const result: ManualInvoiceSearchResultDto[] = invoices.map((inv) => {
-      const prefix = inv.isElectronic ? 'FAC' : 'MAN';
+      const prefix = inv.emission ? 'FAC' : 'MAN';
       const invoiceNumber = `${prefix}-${String(inv.sequentialNumber).padStart(6, '0')}`;
       const totalAmount = (inv.items ?? []).reduce(
         (acc, item) => acc + Number(item.quantity) * Number(item.product?.sellingPrice || 0),
@@ -595,10 +583,6 @@ export class SalesService {
       ['customerId', 'status'],
     );
 
-    if (queryDto.isElectronic !== undefined) {
-      where.isElectronic = queryDto.isElectronic;
-    }
-
     const [data, total] = await this.invoiceRepository.findAndCount({
       where,
       order: { [sortBy]: order },
@@ -614,7 +598,7 @@ export class SalesService {
     });
 
     const enriched = data.map((inv) => {
-      const prefix = inv.isElectronic ? 'FAC' : 'MAN';
+      const prefix = inv.emission ? 'FAC' : 'MAN';
       const invoiceNumber = `${prefix}-${String(inv.sequentialNumber).padStart(6, '0')}`;
       const totalAmount = (inv.items ?? []).reduce(
         (acc, item) => acc + Number(item.quantity) * Number(item.product?.sellingPrice || 0),
@@ -661,7 +645,7 @@ export class SalesService {
     }
 
     // Compute derived fields
-    const prefix = invoice.isElectronic ? 'FAC' : 'MAN';
+    const prefix = invoice.emission ? 'FAC' : 'MAN';
     (invoice as any).invoiceNumber = `${prefix}-${String(invoice.sequentialNumber).padStart(6, '0')}`;
     (invoice as any).totalAmount = (invoice.items ?? []).reduce(
       (acc, item) => acc + Number(item.quantity) * Number(item.product?.sellingPrice || 0),
@@ -705,7 +689,7 @@ export class SalesService {
       relations: ['items'],
     });
 
-    const calculateProfit = (invoices: Invoice[]) => {
+    const calculateProfit = async (invoices: Invoice[]) => {
       let totalSales = 0;
       let totalCost = 0;
 
@@ -715,8 +699,25 @@ export class SalesService {
           0,
         );
         totalSales += invTotal;
+
+        // Collect product IDs with their invoice date for batch cost lookup
+        const productCosts: Map<string, number> = new Map();
         for (const item of inv.items) {
-          totalCost += Number(item.purchasePrice || 0) * Number(item.quantity);
+          if (productCosts.has(item.productId)) continue;
+          // Find the most recent batch created before or on the invoice date
+          const batch = await this.invoiceRepository.manager
+            .createQueryBuilder(InventoryBatch, 'ib')
+            .where('ib.productId = :productId', { productId: item.productId })
+            .andWhere('ib.createdAt <= :invoiceDate', { invoiceDate: inv.date })
+            .orderBy('ib.createdAt', 'DESC')
+            .getOne();
+          const cost = batch ? Number(batch.purchasePrice) : 0;
+          productCosts.set(item.productId, cost);
+        }
+
+        for (const item of inv.items) {
+          const cost = productCosts.get(item.productId) ?? 0;
+          totalCost += cost * Number(item.quantity);
         }
       }
 
@@ -727,8 +728,10 @@ export class SalesService {
       };
     };
 
-    const currentStats = calculateProfit(currentMonthInvoices);
-    const prevStats = calculateProfit(prevMonthInvoices);
+    const [currentStats, prevStats] = await Promise.all([
+      calculateProfit(currentMonthInvoices),
+      calculateProfit(prevMonthInvoices),
+    ]);
 
     const profitDiff = currentStats.profit - prevStats.profit;
     const profitPercentage =
@@ -817,13 +820,12 @@ export class SalesService {
 
   /**
    * Guard: rejects electronic adjustment notes for manual invoices.
-   * Called immediately after isElectronicNote resolution in createCreditNote().
    */
   private validateNoteElectronicStatus(
     isElectronicNote: boolean,
     invoice: Invoice,
   ): void {
-    if (isElectronicNote && !invoice.isElectronic) {
+    if (isElectronicNote && !invoice.emission) {
       throw new BadRequestException(
         'Las notas de ajuste electrónicas solo pueden emitirse para facturas electrónicas',
       );
@@ -839,7 +841,7 @@ export class SalesService {
       where: { invoiceId: invoice.id, noteNumber: Like(`${prefix}-%`) },
     });
     const seq = count + 1;
-    const invPrefix = invoice.isElectronic ? 'FAC' : 'MAN';
+    const invPrefix = invoice.emission ? 'FAC' : 'MAN';
     const invNumber = `${invPrefix}-${String(invoice.sequentialNumber).padStart(6, '0')}`;
     return `${prefix}-${invNumber}-${seq}`;
   }
@@ -847,12 +849,10 @@ export class SalesService {
   /**
    * Validates that the new credit note does not exceed the invoice cumulative limits.
    *
-   * Amount check (ALL scenarios): existing credit note amounts + new note amount
+   * Amount check: existing credit note amounts + new note amount
    * must not exceed invoice.totalAmount.
    *
-   * Per-product quantity check (scenarios A/D only — codes '1','5','2'):
-   * existing credit note item quantities per productId + new note quantity
-   * must not exceed the original invoice item quantity.
+   * Code '2' (total annulment) is blocked if any credit notes already exist.
    */
   private async validateCumulativeLimits(
     invoice: Invoice,
@@ -898,45 +898,9 @@ export class SalesService {
       );
     }
 
-    // --- Per-product quantity check (A/D only: codes '1','5','2') ---
-    if (
-      dto.correctionConceptCode &&
-      ['1', '5', '2'].includes(dto.correctionConceptCode)
-    ) {
-      const qtyResults = await manager
-        .createQueryBuilder(CreditNoteItem, 'cni')
-        .select('cni.productId', 'productId')
-        .addSelect('COALESCE(SUM(cni.quantity), 0)', 'totalQty')
-        .innerJoin(CreditNote, 'cn', 'cn.id = cni.creditNoteId')
-        .where('cn.invoiceId = :invoiceId', { invoiceId: invoice.id })
-        .andWhere('cni.productId IS NOT NULL')
-        .groupBy('cni.productId')
-        .getRawMany<{ productId: string; totalQty: string }>();
-
-      for (const dtoItem of dto.items || []) {
-        if (!dtoItem.productId) continue;
-
-        const existingQtyResult = qtyResults.find(
-          (q) => q.productId === dtoItem.productId,
-        );
-        const existingQty = existingQtyResult
-          ? Number(existingQtyResult.totalQty)
-          : 0;
-
-        const invoiceItem = invoice.items.find(
-          (ii) =>
-            ii.productId === dtoItem.productId ||
-            ii.product?.sku === dtoItem.codeReference,
-        );
-        if (!invoiceItem) continue;
-
-        if (existingQty + dtoItem.quantity > invoiceItem.quantity) {
-          throw new BadRequestException(
-            `La cantidad acumulada del producto ${dtoItem.productId} (${existingQty + dtoItem.quantity}) supera la cantidad facturada (${invoiceItem.quantity})`,
-          );
-        }
-      }
-    }
+    // NOTE: Per-product quantity check removed — only code '2' (total annulment)
+    // reaches this method, and code '2' is already blocked by the existingAmount > 0
+    // guard above. The per-product loop was dead code.
   }
 
   /**
@@ -970,7 +934,7 @@ export class SalesService {
       let cude: string | null = null;
       let qrUrl: string | null = null;
       let publicUrl: string | null = null;
-      const invPrefix = invoice.isElectronic ? 'FAC' : 'MAN';
+      const invPrefix = invoice.emission ? 'FAC' : 'MAN';
       const invNumber = `${invPrefix}-${String(invoice.sequentialNumber).padStart(6, '0')}`;
       const referenceCode = `NC-${invNumber}-${Date.now()}`;
 
@@ -1054,7 +1018,6 @@ export class SalesService {
           unitPrice: item.unitPrice,
           subtotal: item.subtotal,
           productId: item.productId,
-          purchasePrice: item.purchasePrice,
           taxAmount: item.taxAmount,
           restored: item.restored ?? false,
         });
@@ -1125,7 +1088,7 @@ export class SalesService {
     }
 
     // --- Determinar si la nota es electrónica ---
-    const isElectronicNote = dto.isElectronic ?? invoice.isElectronic;
+    const isElectronicNote = !!invoice.emission;
 
     // Guard: reject electronic note for manual invoice
     this.validateNoteElectronicStatus(isElectronicNote, invoice);
@@ -1193,7 +1156,7 @@ export class SalesService {
           invoice,
           creditNotes,
         );
-      const invPrefix = invoice.isElectronic ? 'FAC' : 'MAN';
+      const invPrefix = invoice.emission ? 'FAC' : 'MAN';
       const invNumber = `${invPrefix}-${String(invoice.sequentialNumber).padStart(6, '0')}`;
       const fileName = `${invNumber}-historial.pdf`;
       return { pdfBase64Encoded, fileName };
@@ -1216,7 +1179,7 @@ export class SalesService {
       throw new NotFoundException(`Factura con ID ${id} no encontrada`);
     }
 
-    if (!invoice.isElectronic) {
+    if (!invoice.emission) {
       throw new BadRequestException(
         'Las facturas manuales no tienen PDF de la DIAN',
       );
@@ -1261,8 +1224,8 @@ export class SalesService {
     for (const code of codesToTry) {
       try {
         const result = await this.factusGateway.destroyInvoice(code);
-        // Reset invoice electronic status so it can be re-emitted
-        invoice.isElectronic = false;
+        // Reset emission so the invoice can be re-emitted
+        invoice.emission = undefined;
         invoice.factusReferenceCode = undefined;
         await this.invoiceRepository.save(invoice);
         return result;

@@ -21,9 +21,7 @@ import { IFactusInvoicingGateway } from '../../factus/interfaces/factus-invoicin
 // processCreditNoteWithHandler which handles Factus payload building
 // (electronic) or local persistence (manual).
 //
-// Four concrete handlers cover the business scenarios:
-//   ScenarioA (partial return), ScenarioB (discount),
-//   ScenarioC (price correction), ScenarioD (total annulment)
+// One concrete handler: ScenarioD (total annulment)
 // ---------------------------------------------------------------------------
 
 /** Per-item tax breakdown data, mirroring InvoiceItemTax structure. */
@@ -44,7 +42,6 @@ export interface PreparedNoteItem {
   unitPrice: number;
   subtotal: number;
   productId?: string;
-  purchasePrice?: number;
   taxAmount: number;
   restored?: boolean;
   noteItemTaxes: NoteItemTaxData[];
@@ -66,7 +63,7 @@ export interface ScenarioResult {
 export interface ScenarioParams {
   /** The parent invoice with loaded items, product, and invoiceItemTaxes relations. */
   invoice: Invoice;
-  /** The incoming DTO (contains correctionConceptCode, items, isElectronic, etc.). */
+  /** The incoming DTO (contains correctionConceptCode, items, etc.). */
   dto: CreateSalesNoteDto;
   /** TypeORM EntityManager scoped to the current transaction (for persist operations). */
   queryRunner: EntityManager;
@@ -80,7 +77,7 @@ export interface ScenarioParams {
  * Each handler encapsulates the business rules for one DIAN correction concept:
  * - Validates the DTO items and invoice state
  * - Computes proportional taxes using the shared tax-recalculator utility
- * - Restores inventory when applicable (Scenarios A, D)
+ * - Restores inventory when applicable (Scenario D)
  * - Builds electronic Factus payload items when applicable
  * - Returns a ScenarioResult for the caller to persist
  */

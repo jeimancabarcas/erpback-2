@@ -4,7 +4,7 @@ function makeInvoice(overrides: any = {}): any {
   return {
     id: 'inv-1',
     sequentialNumber: 1,
-    isElectronic: false,
+
     date: new Date('2026-06-01'),
     customerId: 'cust-1',
     customer: {
