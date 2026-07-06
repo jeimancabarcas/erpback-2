@@ -593,119 +593,127 @@ describe('InventoryService', () => {
   });
 
   describe('getMovements', () => {
-    it('should compile manual positive and negative adjustments with origin/destination set to "Ajuste de inventario"', async () => {
-      const mockBatches = [
+    it('should query from movement table when audit movements exist (auto-detect gate)', async () => {
+      const mockMovements = [
         {
-          id: 'b1111111-uuid',
-          createdAt: new Date('2026-06-20T12:00:00Z'),
-          initialQuantity: 10,
-          purchaseOrderId: null, // manual adjustment (or initial stock)
+          id: 'mvmt-uuid-1',
+          createdAt: new Date('2026-07-01T10:00:00Z'),
+          type: MovementType.IN,
+          quantity: 10,
+          origin: 'Proveedor (Compra)',
+          destination: 'Almacén Principal',
+          referenceType: 'PURCHASE_ORDER',
+          referenceId: 'po-uuid',
           product: { name: 'Test Product' },
-        },
-        {
-          id: 'b2222222-uuid',
-          createdAt: new Date('2026-06-20T12:10:00Z'),
-          initialQuantity: -5, // negative manual adjustment
-          purchaseOrderId: null,
-          product: { name: 'Test Product' },
-        },
-        {
-          id: 'b3333333-uuid',
-          createdAt: new Date('2026-06-20T12:20:00Z'),
-          initialQuantity: 8,
-          purchaseOrderId: 'po-uuid-1', // regular purchase
-          product: { name: 'Test Product' },
+          user: { email: 'operator@test.com' },
+          userId: 'user-uuid',
         },
       ] as any[];
 
-      mockBatchRepository.find.mockResolvedValue(mockBatches);
-      mockInvoiceItemRepository.find.mockResolvedValue([]); // no invoices
-
-      const result = await service.getMovements({});
-
-      expect(result.data).toHaveLength(3);
-      expect(result.meta.total).toBe(3);
-
-      const manualPos = result.data.find((m) => m.id === 'IN-B1111111');
-      expect(manualPos).toBeDefined();
-      expect(manualPos.type).toBe('In');
-      expect(manualPos.quantity).toBe(10);
-      expect(manualPos.origin).toBe('Ajuste de inventario');
-      expect(manualPos.destination).toBe('Ajuste de inventario');
-
-      const manualNeg = result.data.find((m) => m.id === 'OUT-B2222222');
-      expect(manualNeg).toBeDefined();
-      expect(manualNeg.type).toBe('Out');
-      expect(manualNeg.quantity).toBe(5);
-      expect(manualNeg.origin).toBe('Ajuste de inventario');
-      expect(manualNeg.destination).toBe('Ajuste de inventario');
-
-      const purchase = result.data.find((m) => m.id === 'IN-B3333333');
-      expect(purchase).toBeDefined();
-      expect(purchase.type).toBe('In');
-      expect(purchase.quantity).toBe(8);
-      expect(purchase.origin).toBe('Proveedor (Compra)');
-      expect(purchase.destination).toBe('Almacén Principal');
-
-      // Date debe ser un objeto Date (la DB lo entrega como timestamp, NestJS lo serializa a ISO)
-      expect(manualPos.date).toBeInstanceOf(Date);
-    });
-
-    it('should retrieve movements with operator email or Sistema fallback', async () => {
-      const mockBatches = [
-        {
-          id: 'b1111111-uuid',
-          createdAt: new Date('2026-06-20T12:00:00Z'),
-          initialQuantity: 10,
-          purchaseOrderId: null,
-          product: { name: 'Test Product' },
-          user: { email: 'operator@example.com' },
-        },
-        {
-          id: 'b2222222-uuid',
-          createdAt: new Date('2026-06-20T12:10:00Z'),
-          initialQuantity: -5,
-          purchaseOrderId: null,
-          product: { name: 'Test Product' },
-          user: null, // should fall back to 'Sistema'
-        },
-        {
-          id: 'b3333333-uuid',
-          createdAt: new Date('2026-06-20T12:20:00Z'),
-          initialQuantity: 8,
-          purchaseOrderId: 'po-uuid-1',
-          product: { name: 'Test Product' },
-          user: null,
-        },
-      ] as any[];
-
-      mockBatchRepository.find.mockResolvedValue(mockBatches);
-      mockInvoiceItemRepository.find.mockResolvedValue([
-        {
-          id: 'inv-item-1',
-          quantity: 2,
-          product: { name: 'Test Product' },
-          invoice: { date: new Date('2026-06-20T12:30:00Z') },
-        },
+      mockMovementRepository.count.mockResolvedValue(1);
+      mockMovementRepository.findAndCount.mockResolvedValue([
+        mockMovements,
+        1,
       ]);
 
       const result = await service.getMovements({});
 
-      expect(batchRepo.find).toHaveBeenCalledWith({
-        relations: ['product', 'user'],
-      });
+      expect(mockMovementRepository.findAndCount).toHaveBeenCalled();
+      expect(result.data).toHaveLength(1);
+      expect(result.meta.total).toBe(1);
+      expect(result.data[0].product).toBe('Test Product');
+      expect(result.data[0].type).toBe('In');
+      expect(result.data[0].quantity).toBe(10);
+      expect(result.data[0].origin).toBe('Proveedor (Compra)');
+      expect(result.data[0].destination).toBe('Almacén Principal');
+      expect(result.data[0].operator).toBe('operator@test.com');
+      expect(result.data[0].operatorId).toBe('user-uuid');
+    });
 
-      const manualPos = result.data.find((m) => m.id === 'IN-B1111111');
-      expect(manualPos.operator).toBe('operator@example.com');
+    it('should filter by type when query param is provided (new path)', async () => {
+      const outMovements = [
+        {
+          id: 'mvmt-out-uuid',
+          createdAt: new Date('2026-07-01T10:00:00Z'),
+          type: MovementType.OUT,
+          quantity: 5,
+          origin: 'Almacén Principal',
+          destination: 'Cliente Final',
+          referenceType: 'SALES_INVOICE',
+          product: { name: 'Test Product' },
+          user: null,
+          userId: null,
+        },
+      ] as any[];
 
-      const manualNeg = result.data.find((m) => m.id === 'OUT-B2222222');
-      expect(manualNeg.operator).toBe('Sistema');
+      mockMovementRepository.count.mockResolvedValue(1);
+      mockMovementRepository.findAndCount.mockResolvedValue([
+        outMovements,
+        1,
+      ]);
 
-      const purchase = result.data.find((m) => m.id === 'IN-B3333333');
-      expect(purchase.operator).toBe('Sistema');
+      const result = await service.getMovements({ type: 'Out' });
 
-      const sale = result.data.find((m) => m.id === 'OUT-INV-ITEM');
-      expect(sale.operator).toBe('Sistema');
+      expect(mockMovementRepository.findAndCount).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ type: MovementType.OUT }),
+        }),
+      );
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].type).toBe('Out');
+    });
+
+    it('should fall back to legacy aggregation when no audit movements exist', async () => {
+      mockMovementRepository.count.mockResolvedValue(0);
+
+      const mockBatches = [
+        {
+          id: 'b1111111-uuid',
+          createdAt: new Date('2026-06-20T12:00:00Z'),
+          initialQuantity: 10,
+          purchaseOrderId: null,
+          product: { name: 'Test Product' },
+        },
+      ] as any[];
+
+      mockBatchRepository.find.mockResolvedValue(mockBatches);
+      mockInvoiceItemRepository.find.mockResolvedValue([]);
+
+      const result = await service.getMovements({});
+
+      expect(mockMovementRepository.findAndCount).not.toHaveBeenCalled();
+      expect(batchRepo.find).toHaveBeenCalled();
+      expect(result.data).toHaveLength(1);
+      expect(result.meta.total).toBe(1);
+    });
+
+    it('should paginate results correctly (new path)', async () => {
+      const allMovements = Array.from({ length: 25 }, (_, i) => ({
+        id: `mvmt-${i}`,
+        createdAt: new Date(`2026-07-0${(i % 9) + 1}T10:00:00Z`),
+        type: i % 2 === 0 ? MovementType.IN : MovementType.OUT,
+        quantity: i + 1,
+        origin: 'Origen',
+        destination: 'Destino',
+        referenceType: 'MANUAL_ADJUSTMENT',
+        product: { name: `Product ${i}` },
+        user: null,
+        userId: null,
+      }));
+
+      mockMovementRepository.count.mockResolvedValue(1);
+      mockMovementRepository.findAndCount.mockResolvedValue([
+        allMovements.slice(0, 10),
+        25,
+      ]);
+
+      const result = await service.getMovements({ page: 1, limit: 10 });
+
+      expect(result.data).toHaveLength(10);
+      expect(result.meta.total).toBe(25);
+      expect(result.meta.page).toBe(1);
+      expect(result.meta.lastPage).toBe(3);
+      expect(result.meta.limit).toBe(10);
     });
   });
 

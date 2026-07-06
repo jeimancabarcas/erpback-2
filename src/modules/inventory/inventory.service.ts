@@ -618,6 +618,82 @@ export class InventoryService {
       userId,
     } = queryDto;
 
+    // Auto-detect gate: if audit table has data, use it
+    const hasMovements = (await this.movementRepository.count()) > 0;
+
+    if (hasMovements) {
+      return this.getMovementsFromAuditTable(queryDto);
+    }
+
+    // Legacy fallback: 3-table aggregation
+    return this.getMovementsLegacy(queryDto);
+  }
+
+  private async getMovementsFromAuditTable(
+    queryDto: QueryMovementsDto,
+  ): Promise<PaginatedResult<any>> {
+    const {
+      page = 1,
+      limit = 10,
+      sortBy = 'date',
+      order = 'DESC',
+      type,
+      userId,
+    } = queryDto;
+
+    const skip = (page - 1) * limit;
+
+    const where: any = {};
+    if (type) {
+      where.type = type === 'In' ? MovementType.IN : MovementType.OUT;
+    }
+    if (userId) {
+      where.userId = userId;
+    }
+
+    const [data, total] = await this.movementRepository.findAndCount({
+      where,
+      order: { [sortBy === 'date' ? 'createdAt' : sortBy]: order },
+      skip,
+      take: limit,
+      relations: ['product', 'user'],
+    });
+
+    const mappedData = data.map((m) => ({
+      id: m.id,
+      date: m.createdAt,
+      type: m.type,
+      product: m.product ? m.product.name : 'Producto Eliminado',
+      quantity: m.quantity,
+      origin: m.origin,
+      destination: m.destination,
+      operator: m.user ? m.user.email : 'Sistema',
+      operatorId: m.userId,
+    }));
+
+    return {
+      data: mappedData,
+      meta: {
+        total,
+        page,
+        lastPage: Math.ceil(total / limit),
+        limit,
+      },
+    };
+  }
+
+  private async getMovementsLegacy(
+    queryDto: QueryMovementsDto,
+  ): Promise<PaginatedResult<any>> {
+    const {
+      page = 1,
+      limit = 10,
+      sortBy = 'date',
+      order = 'DESC',
+      type,
+      userId,
+    } = queryDto;
+
     // 1. Obtener entradas/salidas desde los lotes creados
     const batches = await this.batchRepository.find({
       relations: ['product', 'user'],
