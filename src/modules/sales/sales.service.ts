@@ -136,7 +136,7 @@ export class SalesService {
         );
         const priceBeforeTax =
           totalTaxRate > 0
-            ? Number((unitPrice / (1 + totalTaxRate / 100)).toFixed(2))
+            ? Math.round((unitPrice / (1 + totalTaxRate / 100)) * 100) / 100
             : unitPrice;
 
         let itemTaxAmount = 0;
@@ -295,7 +295,7 @@ export class SalesService {
       );
       const priceBeforeTax =
         totalTaxRate > 0
-          ? Number((unitPrice / (1 + totalTaxRate / 100)).toFixed(2))
+          ? Math.round((unitPrice / (1 + totalTaxRate / 100)) * 100) / 100
           : unitPrice;
 
       const factusTaxes: FactusTax[] = [];
@@ -320,23 +320,8 @@ export class SalesService {
       });
     }
 
-    // Compute total the way DIAN/Factus likely does:
-    // subtotal = SUM(price * qty)
-    // tax = SUM(price * qty * rate/100) per tax
-    // total = subtotal + sum(taxes), no intermediate rounding
-    let subtotal = 0;
-    const taxTotals: Record<string, number> = {};
-    for (const fi of factusItems) {
-      const price = Number(Number(fi.price).toFixed(2));
-      const qty = Number(Number(fi.quantity).toFixed(2));
-      subtotal += price * qty;
-      for (const t of fi.taxes) {
-        const rate = Number(t.rate) / 100;
-        taxTotals[t.code] = (taxTotals[t.code] || 0) + price * qty * rate;
-      }
-    }
-    const totalTax = Object.values(taxTotals).reduce((s, v) => s + v, 0);
-    const factusTotalAmount = Number((subtotal + totalTax).toFixed(2));
+    // Compute total using integer cents arithmetic to match Factus rounding
+    const factusTotalAmount = this.computeFactusTotal(factusItems);
 
     // Use stored reference code if available, otherwise generate a new one
     // Store it on the invoice so we can retry/destroy if Factus fails
@@ -719,19 +704,24 @@ export class SalesService {
 
   /**
    * Computes the total amount from Factus items as Factus would calculate it:
-   * Σ(price * quantity) + Σ(tax_rate/100 * price * quantity) per item.
+   * Uses integer cents arithmetic to avoid IEEE 754 rounding discrepancies.
+   * Σ round(price * quantity) + Σ round(net * tax_rate/100) per item.
    */
   private computeFactusTotal(factusItems: any[]): number {
-    return factusItems.reduce((sum, fi) => {
-      const price = Number(fi.price) || 0;
-      const quantity = Number(fi.quantity) || 0;
-      const itemSubtotal = price * quantity;
-      const taxTotal = (fi.taxes || []).reduce(
-        (s: number, t: any) => s + (Number(t.rate) / 100) * price * quantity,
-        0,
-      );
-      return sum + itemSubtotal + taxTotal;
-    }, 0);
+    let totalCents = 0;
+    for (const fi of factusItems) {
+      const priceCents = Math.round(Number(fi.price) * 100);
+      const qtyHundredths = Math.round(Number(fi.quantity) * 100);
+      const netCents = Math.round((priceCents * qtyHundredths) / 100);
+
+      let itemCents = netCents;
+      for (const t of fi.taxes || []) {
+        const rate = Number(t.rate);
+        itemCents += Math.floor((netCents * rate) / 100);
+      }
+      totalCents += itemCents;
+    }
+    return totalCents / 100;
   }
 
   /**
@@ -919,7 +909,7 @@ export class SalesService {
         const factusPayload = {
           referenceCode,
           correctionConceptCode: dto.correctionConceptCode,
-          billNumber: dto.billNumber || invoice.emission?.number || invNumber,
+          billNumber: invoice.emission?.number || dto.billNumber,
           numberingRangeId: dto.numberingRangeId,
           observation: dto.observation || 'Anulación / Corrección de factura',
           paymentDetails: [
@@ -1012,10 +1002,22 @@ export class SalesService {
         }
       }
 
+      // Capture original status before handler may change it
+      const wasOnCredit = invoice.status === InvoiceStatus.ON_CREDIT;
+
       // Update invoice status if the handler specified a change
       if (result.updatedInvoiceStatus) {
         invoice.status = result.updatedInvoiceStatus as InvoiceStatus;
         await queryRunner.manager.save(invoice);
+      }
+
+      // Release customer credit balance for credit notes on credit invoices
+      if (wasOnCredit) {
+        invoice.customer.currentBalance = Math.max(
+          0,
+          (Number(invoice.customer.currentBalance) || 0) - result.totalAmount,
+        );
+        await queryRunner.manager.save(Customer, invoice.customer);
       }
 
       await queryRunner.commitTransaction();

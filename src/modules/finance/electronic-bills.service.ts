@@ -375,18 +375,21 @@ export class ElectronicBillsService {
       }),
     );
 
-    // Compute total matching Factus's internal calculation (net + tax per item)
-    const computedTotal = factusItems
-      .reduce((sum, item) => {
-        const netAmount = item.price * item.quantity;
-        const taxAmount = item.taxes.reduce(
-          (taxSum, t) =>
-            taxSum + Math.round(netAmount * (Number(t.rate) / 100) * 100) / 100,
-          0,
-        );
-        return sum + Math.round((netAmount + taxAmount) * 100) / 100;
-      }, 0)
-      .toFixed(2);
+    // Compute total matching Factus's internal calculation using integer cents
+    let totalCents = 0;
+    for (const item of factusItems) {
+      const priceCents = Math.round(Number(item.price) * 100);
+      const qtyHundredths = Math.round(Number(item.quantity) * 100);
+      const netCents = Math.round((priceCents * qtyHundredths) / 100);
+
+      let itemCents = netCents;
+      for (const t of item.taxes) {
+        const rate = Number(t.rate);
+        itemCents += Math.floor((netCents * rate) / 100);
+      }
+      totalCents += itemCents;
+    }
+    const computedTotal = (totalCents / 100).toFixed(2);
 
     // 5. Build FactusCreditNoteRequest
     const payload: FactusCreditNoteRequest = {

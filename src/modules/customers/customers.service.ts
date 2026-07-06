@@ -30,6 +30,7 @@ export class CustomersService {
       .select('COUNT(invoice.id)', 'invoiceCount')
       .addSelect('SUM(invoice.totalAmount)', 'totalInvoiced')
       .where('invoice.customer_id = :id', { id })
+      .andWhere("invoice.status != 'CANCELLED'")
       .getRawOne<{ invoiceCount?: string; totalInvoiced?: string }>();
 
     return {

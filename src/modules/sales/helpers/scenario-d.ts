@@ -69,7 +69,7 @@ export class ScenarioDHandler implements ScenarioHandler {
       );
       const priceBeforeTax =
         totalTaxRate > 0
-          ? Number((unitPrice / (1 + totalTaxRate / 100)).toFixed(2))
+          ? Math.round((unitPrice / (1 + totalTaxRate / 100)) * 100) / 100
           : unitPrice;
       const noteItemTaxes = invoiceItemTaxes.map((t) => {
         const taxRate = Number(t.tax?.percentage || 0);
@@ -110,7 +110,7 @@ export class ScenarioDHandler implements ScenarioHandler {
         );
         const priceBeforeTax =
           totalTaxRate > 0
-            ? Number((unitPrice / (1 + totalTaxRate / 100)).toFixed(2))
+            ? Math.round((unitPrice / (1 + totalTaxRate / 100)) * 100) / 100
             : unitPrice;
 
         const taxMap = new Map<string, { code: string; rate: number; isExcluded: boolean }>();

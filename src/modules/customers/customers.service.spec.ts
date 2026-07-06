@@ -115,6 +115,7 @@ describe('CustomersService', () => {
         select: jest.fn().mockReturnThis(),
         addSelect: jest.fn().mockReturnThis(),
         where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
         getRawOne: jest.fn().mockResolvedValue({ invoiceCount: '2', totalInvoiced: '1500000' }),
       });
 
@@ -137,6 +138,7 @@ describe('CustomersService', () => {
         select: jest.fn().mockReturnThis(),
         addSelect: jest.fn().mockReturnThis(),
         where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
         getRawOne: jest.fn().mockResolvedValue({ invoiceCount: '0', totalInvoiced: '0' }),
       });
 
