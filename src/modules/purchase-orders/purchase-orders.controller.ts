@@ -7,6 +7,7 @@ import {
   Param,
   Delete,
   Query,
+  Req,
   UseGuards,
   ParseUUIDPipe,
 } from '@nestjs/common';
@@ -48,8 +49,9 @@ export class PurchaseOrdersController {
   updateStatus(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() updateStatusDto: UpdatePurchaseOrderStatusDto,
+    @Req() req: any,
   ) {
-    return this.purchaseOrdersService.updateStatus(id, updateStatusDto);
+    return this.purchaseOrdersService.updateStatus(id, updateStatusDto, req.user);
   }
 
   @Delete(':id')

@@ -16,6 +16,7 @@ import { UpdatePurchaseOrderStatusDto } from './dto/update-purchase-order-status
 import { PaginatedResult } from '../../common/interfaces/paginated-result.interface';
 import { buildWhere } from '../../common/helpers/query.helper';
 import { InventoryService } from '../inventory/inventory.service';
+import { User } from '../users/entities/user.entity';
 
 @Injectable()
 export class PurchaseOrdersService {
@@ -124,6 +125,7 @@ export class PurchaseOrdersService {
   async updateStatus(
     id: string,
     updateStatusDto: UpdatePurchaseOrderStatusDto,
+    user?: User,
   ): Promise<PurchaseOrder> {
     const order = await this.findOne(id);
     const previousStatus = order.status;
@@ -146,6 +148,7 @@ export class PurchaseOrdersService {
           item.quantity,
           item.price,
           order.id,
+          user,
         );
       }
     }

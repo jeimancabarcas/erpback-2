@@ -6,6 +6,7 @@ import {
   Body,
   Param,
   Query,
+  Req,
   UseGuards,
   ParseUUIDPipe,
 } from '@nestjs/common';
@@ -31,8 +32,8 @@ export class SalesController {
   }
 
   @Post('invoices')
-  create(@Body() createDto: CreateInvoiceDto) {
-    return this.salesService.create(createDto);
+  create(@Body() createDto: CreateInvoiceDto, @Req() req: any) {
+    return this.salesService.create(createDto, req.user);
   }
 
   @Get('invoices')

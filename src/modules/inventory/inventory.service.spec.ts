@@ -54,6 +54,7 @@ describe('InventoryService', () => {
     getRepository: jest.fn().mockImplementation((entity) => {
       if (entity === Product) return mockProductRepository;
       if (entity === InventoryBatch) return mockBatchRepository;
+      if (entity === InventoryMovement) return mockMovementRepository;
     }),
   };
 
@@ -737,7 +738,7 @@ describe('InventoryService', () => {
       expect(mockMovementRepository.save).toHaveBeenCalled();
     });
 
-    it('should NOT record a movement when consumeStock is called without context', async () => {
+    it('should ALWAYS record a movement when consumeStock is called without context (UNKNOWN)', async () => {
       const product = {
         id: productId,
         currentStock: 20,
@@ -760,11 +761,24 @@ describe('InventoryService', () => {
       mockProductRepository.save.mockImplementation((p: any) =>
         Promise.resolve(p),
       );
+      // Spy on logger
+      const loggerWarnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation();
 
       await service.consumeStock(productId, 5);
 
-      expect(mockMovementRepository.create).not.toHaveBeenCalled();
-      expect(mockMovementRepository.save).not.toHaveBeenCalled();
+      expect(mockMovementRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          productId,
+          type: MovementType.OUT,
+          quantity: 5,
+          referenceType: 'UNKNOWN',
+        }),
+      );
+      expect(mockMovementRepository.save).toHaveBeenCalled();
+      expect(loggerWarnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('consumeStock called without MovementContext'),
+      );
+      loggerWarnSpy.mockRestore();
     });
   });
 
@@ -1012,7 +1026,7 @@ describe('InventoryService', () => {
       expect(mockMovementRepository.save).toHaveBeenCalled();
     });
 
-    it('should NOT record a movement when restoreStock is called without context', async () => {
+    it('should ALWAYS record a movement when restoreStock is called without context (UNKNOWN)', async () => {
       const product = {
         id: productId,
         currentStock: 7,
@@ -1041,12 +1055,23 @@ describe('InventoryService', () => {
         currentBatch = b;
         return Promise.resolve(b);
       });
+      const loggerWarnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation();
 
       await service.restoreStock(productId, 2);
 
-      // Without context, no movement should be recorded
-      expect(mockMovementRepository.create).not.toHaveBeenCalled();
-      expect(mockMovementRepository.save).not.toHaveBeenCalled();
+      expect(mockMovementRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          productId,
+          type: MovementType.IN,
+          quantity: 2,
+          referenceType: 'UNKNOWN',
+        }),
+      );
+      expect(mockMovementRepository.save).toHaveBeenCalled();
+      expect(loggerWarnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('restoreStock called without MovementContext'),
+      );
+      loggerWarnSpy.mockRestore();
     });
 
     it('should participate in a transaction when manager is provided', async () => {

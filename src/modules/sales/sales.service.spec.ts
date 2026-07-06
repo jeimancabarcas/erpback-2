@@ -444,6 +444,40 @@ describe('SalesService.create() — sequential numbering', () => {
 
   // ---- Tax calculation in create() ----
 
+  it('consumeStock is called AFTER invoice save with correct referenceId', async () => {
+    await build({ withGateway: false });
+    const consumeStockMock = (service as any).inventoryService.consumeStock as jest.Mock;
+    const queryRunnerSaveMock = queryRunner.manager.save as jest.Mock;
+
+    await service.create({ ...baseDto });
+
+    // consumeStock should be called with referenceId matching a saved invoice ID
+    expect(consumeStockMock).toHaveBeenCalledWith(
+      'prod-1',
+      1,
+      expect.anything(),
+      expect.objectContaining({
+        referenceType: 'SALES_INVOICE',
+        referenceId: expect.stringMatching(/^inv-/),
+      }),
+    );
+
+    // Verify consumeStock was called AFTER invoice save by checking
+    // that the invoice ID referenceId exists (can only exist after save)
+    const referenceId = consumeStockMock.mock.calls[0][3].referenceId;
+    expect(referenceId).toMatch(/^inv-/);
+
+    // Verify the queryRunner.manager.save was called with an invoice
+    // (this creates the ID) BEFORE consumeStock was called
+    const invoiceSaveCall = queryRunnerSaveMock.mock.calls.find(
+      ([first, second]) => {
+        const entity = second !== undefined ? second : first;
+        return entity && entity.id && entity.id === referenceId;
+      },
+    );
+    expect(invoiceSaveCall).toBeDefined();
+  });
+
   it('create manual: with taxed product does NOT call Factus', async () => {
     await build({ withGateway: false });
     queryRunner.manager.findOne = jest

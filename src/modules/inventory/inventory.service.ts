@@ -3,6 +3,7 @@ import {
   NotFoundException,
   ConflictException,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, ILike, MoreThan, EntityManager, In } from 'typeorm';
@@ -30,6 +31,8 @@ export interface MovementContext {
 
 @Injectable()
 export class InventoryService {
+  private readonly logger = new Logger(InventoryService.name);
+
   constructor(
     @InjectRepository(InventoryCategory)
     private readonly categoryRepository: Repository<InventoryCategory>,
@@ -41,29 +44,37 @@ export class InventoryService {
     private readonly movementRepository: Repository<InventoryMovement>,
   ) {}
 
-  private async recordMovement(data: {
-    productId: string;
-    type: MovementType;
-    quantity: number;
-    origin: string;
-    destination: string;
-    referenceType: string;
-    referenceId?: string;
-    userId?: string;
-    metadata?: Record<string, any>;
-  }): Promise<void> {
+  private async recordMovement(
+    data: {
+      product: Product;
+      type: MovementType;
+      quantity: number;
+      origin: string;
+      destination: string;
+      referenceType: string;
+      referenceId?: string;
+      user?: User;
+      metadata?: Record<string, any>;
+    },
+    manager?: EntityManager,
+  ): Promise<void> {
     const movement = this.movementRepository.create({
-      productId: data.productId,
+      productId: data.product.id,
       type: data.type,
       quantity: data.quantity,
       origin: data.origin,
       destination: data.destination,
       referenceType: data.referenceType,
       referenceId: data.referenceId ?? null,
-      userId: data.userId ?? null,
+      userId: data.user?.id ?? null,
       metadata: data.metadata ?? null,
     });
-    await this.movementRepository.save(movement);
+
+    if (manager) {
+      await manager.getRepository(InventoryMovement).save(movement);
+    } else {
+      await this.movementRepository.save(movement);
+    }
   }
 
   async create(
@@ -181,24 +192,30 @@ export class InventoryService {
     }
 
     if (savedProduct.currentStock > 0) {
-      const initialBatch = this.batchRepository.create({
-        productId: savedProduct.id,
-        initialQuantity: savedProduct.currentStock,
-        remainingQuantity: savedProduct.currentStock,
-        purchasePrice: 0,
-        adjustmentReason: 'Stock Inicial',
-        user,
-      });
-      await this.batchRepository.save(initialBatch);
+      await this.productRepository.manager.transaction(async (manager) => {
+        const batchRepo = manager.getRepository(InventoryBatch);
+        const initialBatch = batchRepo.create({
+          productId: savedProduct.id,
+          initialQuantity: savedProduct.currentStock,
+          remainingQuantity: savedProduct.currentStock,
+          purchasePrice: 0,
+          adjustmentReason: 'Stock Inicial',
+          user,
+        });
+        await batchRepo.save(initialBatch);
 
-      await this.recordMovement({
-        productId: savedProduct.id,
-        type: MovementType.IN,
-        quantity: savedProduct.currentStock,
-        origin: 'Stock Inicial',
-        destination: 'Almacén Principal',
-        referenceType: 'INITIAL_STOCK',
-        userId: user?.id,
+        await this.recordMovement(
+          {
+            product: savedProduct,
+            type: MovementType.IN,
+            quantity: savedProduct.currentStock,
+            origin: 'Stock Inicial',
+            destination: 'Almacén Principal',
+            referenceType: 'INITIAL_STOCK',
+            user,
+          },
+          manager,
+        );
       });
     }
 
@@ -313,16 +330,19 @@ export class InventoryService {
 
           await this.recalculateAveragePrice(product.id, manager);
 
-          await this.recordMovement({
-            productId: product.id,
-            type: MovementType.IN,
-            quantity: diff,
-            origin: 'Ajuste de inventario',
-            destination: 'Ajuste de inventario',
-            referenceType: 'MANUAL_ADJUSTMENT',
-            userId: user?.id,
-            metadata: adjustmentReason ? { adjustmentReason } : undefined,
-          });
+          await this.recordMovement(
+            {
+              product,
+              type: MovementType.IN,
+              quantity: diff,
+              origin: 'Ajuste de inventario',
+              destination: 'Ajuste de inventario',
+              referenceType: 'MANUAL_ADJUSTMENT',
+              user,
+              metadata: adjustmentReason ? { adjustmentReason } : undefined,
+            },
+            manager,
+          );
         } else if (diff < 0) {
           const absDiff = Math.abs(diff);
           if (oldStock < absDiff) {
@@ -384,39 +404,48 @@ export class InventoryService {
     quantity: number,
     price: number,
     purchaseOrderId?: string,
+    user?: User,
   ): Promise<Product> {
-    const product = await this.findOneProduct(productId);
+    return this.productRepository.manager.transaction(async (manager) => {
+      const productRepo = manager.getRepository(Product);
+      const batchRepo = manager.getRepository(InventoryBatch);
 
-    // Crear el lote de inventario
-    const batch = this.batchRepository.create({
-      productId,
-      initialQuantity: quantity,
-      remainingQuantity: quantity,
-      purchasePrice: price,
-      purchaseOrderId,
+      const product = await productRepo.findOne({ where: { id: productId } });
+      if (!product) {
+        throw new NotFoundException(`Producto con ID ${productId} no encontrado`);
+      }
+
+      const batch = batchRepo.create({
+        productId,
+        initialQuantity: quantity,
+        remainingQuantity: quantity,
+        purchasePrice: price,
+        purchaseOrderId,
+      });
+      await batchRepo.save(batch);
+
+      product.currentStock = Number(product.currentStock) + Number(quantity);
+      await productRepo.save(product);
+
+      await this.recalculateAveragePrice(productId, manager);
+
+      const isPurchase = !!purchaseOrderId;
+      await this.recordMovement(
+        {
+          product,
+          type: MovementType.IN,
+          quantity,
+          origin: isPurchase ? 'Proveedor (Compra)' : 'Ajuste de inventario',
+          destination: isPurchase ? 'Almacén Principal' : 'Ajuste de inventario',
+          referenceType: isPurchase ? 'PURCHASE_ORDER' : 'MANUAL_ADJUSTMENT',
+          referenceId: purchaseOrderId,
+          user,
+        },
+        manager,
+      );
+
+      return productRepo.findOne({ where: { id: productId }, relations: ['category', 'taxes'] }) as Promise<Product>;
     });
-
-    await this.batchRepository.save(batch);
-
-    // Actualizar stock total
-    product.currentStock = Number(product.currentStock) + Number(quantity);
-    await this.productRepository.save(product);
-
-    // Recalcular precio promedio basado en lotes con stock
-    await this.recalculateAveragePrice(productId);
-
-    const isPurchase = !!purchaseOrderId;
-    await this.recordMovement({
-      productId,
-      type: MovementType.IN,
-      quantity,
-      origin: isPurchase ? 'Proveedor (Compra)' : 'Ajuste de inventario',
-      destination: isPurchase ? 'Almacén Principal' : 'Ajuste de inventario',
-      referenceType: isPurchase ? 'PURCHASE_ORDER' : 'MANUAL_ADJUSTMENT',
-      referenceId: purchaseOrderId,
-    });
-
-    return this.findOneProduct(productId);
   }
 
   async consumeStock(
@@ -469,18 +498,25 @@ export class InventoryService {
     // Recalcular precio promedio después de consumir lotes
     await this.recalculateAveragePrice(productId, manager);
 
-    if (context) {
-      const isSale = context.referenceType === 'SALES_INVOICE';
-      await this.recordMovement({
-        productId,
+    const isSale = context?.referenceType === 'SALES_INVOICE';
+    await this.recordMovement(
+      {
+        product,
         type: MovementType.OUT,
         quantity,
         origin: isSale ? 'Almacén Principal' : 'Ajuste de inventario',
         destination: isSale ? 'Cliente Final' : 'Ajuste de inventario',
-        referenceType: context.referenceType,
-        referenceId: context.referenceId,
-        userId: context.user?.id,
-      });
+        referenceType: context?.referenceType ?? 'UNKNOWN',
+        referenceId: context?.referenceId,
+        user: context?.user,
+      },
+      manager,
+    );
+
+    if (!context) {
+      this.logger.warn(
+        `consumeStock called without MovementContext for product ${product.id}`,
+      );
     }
 
     return totalCost;
@@ -553,18 +589,25 @@ export class InventoryService {
     // Recalculate average price after restoring batches
     await this.recalculateAveragePrice(productId, manager);
 
-    if (context) {
-      const isCreditNote = context.referenceType === 'CREDIT_NOTE';
-      await this.recordMovement({
-        productId,
+    const isCreditNote = context?.referenceType === 'CREDIT_NOTE';
+    await this.recordMovement(
+      {
+        product,
         type: MovementType.IN,
         quantity,
         origin: isCreditNote ? 'Cliente Final (Devolución)' : 'Ajuste de inventario',
         destination: isCreditNote ? 'Almacén Principal' : 'Ajuste de inventario',
-        referenceType: context.referenceType,
-        referenceId: context.referenceId,
-        userId: context.user?.id,
-      });
+        referenceType: context?.referenceType ?? 'UNKNOWN',
+        referenceId: context?.referenceId,
+        user: context?.user,
+      },
+      manager,
+    );
+
+    if (!context) {
+      this.logger.warn(
+        `restoreStock called without MovementContext for product ${product.id}`,
+      );
     }
 
     return { totalCost, restoredQuantity: quantity };

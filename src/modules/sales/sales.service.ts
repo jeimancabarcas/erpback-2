@@ -77,7 +77,7 @@ export class SalesService {
     this.creditScenarioMap['2'] = this.scenarioDHandler;
   }
 
-  async create(createDto: CreateInvoiceDto): Promise<Invoice> {
+  async create(createDto: CreateInvoiceDto, user?: User): Promise<Invoice> {
     const { items, ...invoiceData } = createDto;
 
     if (!items || items.length === 0) {
@@ -101,7 +101,7 @@ export class SalesService {
         );
       }
 
-      // 2. Calcular totales y verificar/consumir stock
+      // 2. Validar productos y calcular totales (NO consumir stock aún)
       let totalAmount = 0;
       const invoiceItems: InvoiceItem[] = [];
       const allItemsTaxData: Partial<InvoiceItemTax>[][] = [];
@@ -121,15 +121,6 @@ export class SalesService {
           item.unitPrice !== undefined
             ? Number(item.unitPrice)
             : Number(product.sellingPrice);
-
-        await this.inventoryService.consumeStock(
-          item.productId,
-          item.quantity,
-          queryRunner.manager,
-          {
-            referenceType: 'SALES_INVOICE',
-          },
-        );
 
         const subtotal = item.quantity * unitPrice;
         totalAmount += subtotal;
@@ -200,6 +191,20 @@ export class SalesService {
             });
           }
         }
+      }
+
+      // 7. Consumir stock con referencia a la factura guardada
+      for (const item of items) {
+        await this.inventoryService.consumeStock(
+          item.productId,
+          item.quantity,
+          queryRunner.manager,
+          {
+            referenceType: 'SALES_INVOICE',
+            referenceId: savedInvoice.id,
+            user,
+          },
+        );
       }
 
       // 8. Actualizar saldo del cliente para facturas a crédito
