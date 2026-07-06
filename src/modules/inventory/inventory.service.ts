@@ -181,18 +181,18 @@ export class InventoryService {
     }
 
     const product = this.productRepository.create(createDto);
-    const savedProduct = await this.productRepository.save(product);
 
-    if (createDto.taxIds?.length) {
-      const taxes = await this.productRepository.manager.findBy(Tax, {
-        id: In(createDto.taxIds),
-      });
-      savedProduct.taxes = taxes;
-      await this.productRepository.save(savedProduct);
-    }
+    if (product.currentStock > 0) {
+      return await this.productRepository.manager.transaction(async (manager) => {
+        const productRepo = manager.getRepository(Product);
+        const savedProduct = await productRepo.save(product);
 
-    if (savedProduct.currentStock > 0) {
-      await this.productRepository.manager.transaction(async (manager) => {
+        if (createDto.taxIds?.length) {
+          const taxes = await manager.findBy(Tax, { id: In(createDto.taxIds) });
+          savedProduct.taxes = taxes;
+          await productRepo.save(savedProduct);
+        }
+
         const batchRepo = manager.getRepository(InventoryBatch);
         const initialBatch = batchRepo.create({
           productId: savedProduct.id,
@@ -216,7 +216,19 @@ export class InventoryService {
           },
           manager,
         );
+
+        return savedProduct;
       });
+    }
+
+    const savedProduct = await this.productRepository.save(product);
+
+    if (createDto.taxIds?.length) {
+      const taxes = await this.productRepository.manager.findBy(Tax, {
+        id: In(createDto.taxIds),
+      });
+      savedProduct.taxes = taxes;
+      await this.productRepository.save(savedProduct);
     }
 
     return savedProduct;

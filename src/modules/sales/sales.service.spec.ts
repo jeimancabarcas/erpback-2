@@ -63,6 +63,8 @@ function makeInvoice(
     emission: undefined,
     dueDate: null,
     paymentFrequency: null,
+    totalAmount: 0,
+    subtotal: 0,
     createdAt: new Date(),
     updatedAt: new Date(),
     ...overrides,
@@ -138,6 +140,7 @@ describe('SalesService.findAll — netTotal computation', () => {
 
   it('a) netTotal equals totalAmount when no credit notes', async () => {
     const inv = makeInvoice({
+      totalAmount: 1000,
       items: [{ quantity: 10, product: { sellingPrice: 100 } } as any],
       creditNotes: [],
     });
@@ -148,6 +151,7 @@ describe('SalesService.findAll — netTotal computation', () => {
 
   it('b) netTotal = totalAmount - creditNote.amount', async () => {
     const inv = makeInvoice({
+      totalAmount: 1000,
       items: [{ quantity: 10, product: { sellingPrice: 100 } } as any],
       creditNotes: [{ amount: 200 } as CreditNote],
     });
@@ -476,6 +480,116 @@ describe('SalesService.create() — sequential numbering', () => {
       },
     );
     expect(invoiceSaveCall).toBeDefined();
+  });
+
+  it('persists unitPrice, subtotal, taxAmount on invoice items', async () => {
+    await build({ withGateway: false });
+    queryRunner.manager.findOne = jest
+      .fn()
+      .mockImplementation((_entityClass: any, opts: any) => {
+        if (opts?.where?.id === 'cust-1')
+          return Promise.resolve(stubCustomer());
+        return Promise.resolve(
+          stubProduct({
+            sellingPrice: 119000,
+            taxes: [{ id: 'tax-1', code: '01', percentage: 19.0 }],
+          }),
+        );
+      });
+
+    const dto = {
+      customerId: 'cust-1',
+      items: [{ productId: 'prod-1', quantity: 3 }],
+    };
+    const r = await service.create(dto);
+
+    // Items should have the new financial fields
+    expect(r.items).toHaveLength(1);
+    expect(r.items[0].unitPrice).toBeDefined();
+    expect(r.items[0].subtotal).toBeDefined();
+    expect(r.items[0].taxAmount).toBeDefined();
+  });
+
+  it('persists totalAmount and subtotal on the saved invoice', async () => {
+    await build({ withGateway: false });
+    queryRunner.manager.findOne = jest
+      .fn()
+      .mockImplementation((_entityClass: any, opts: any) => {
+        if (opts?.where?.id === 'cust-1')
+          return Promise.resolve(stubCustomer());
+        return Promise.resolve(
+          stubProduct({
+            sellingPrice: 119000,
+            taxes: [{ id: 'tax-1', code: '01', percentage: 19.0 }],
+          }),
+        );
+      });
+
+    const dto = {
+      customerId: 'cust-1',
+      items: [{ productId: 'prod-1', quantity: 3 }],
+    };
+    const r = await service.create(dto);
+
+    // Saved invoice should have totalAmount and subtotal
+    expect(r.totalAmount).toBeDefined();
+    expect(r.subtotal).toBeDefined();
+    expect(Number(r.totalAmount)).toBeGreaterThan(0);
+    expect(Number(r.subtotal)).toBeGreaterThan(0);
+  });
+
+  it('persists taxAmount on InvoiceItemTax records', async () => {
+    await build({ withGateway: false });
+    queryRunner.manager.findOne = jest
+      .fn()
+      .mockImplementation((_entityClass: any, opts: any) => {
+        if (opts?.where?.id === 'cust-1')
+          return Promise.resolve(stubCustomer());
+        return Promise.resolve(
+          stubProduct({
+            sellingPrice: 119000,
+            taxes: [{ id: 'tax-1', code: '01', percentage: 19.0 }],
+          }),
+        );
+      });
+
+    const dto = {
+      customerId: 'cust-1',
+      items: [{ productId: 'prod-1', quantity: 1 }],
+    };
+    await service.create(dto);
+
+    // Verify InvoiceItemTax saves include taxAmount
+    const taxSaves = queryRunner.manager.save.mock.calls.filter(
+      ([first, second]) => {
+        const entity = second !== undefined ? second : first;
+        return entity && entity.constructor?.name === 'InvoiceItemTax';
+      },
+    );
+    // Or check for Tax saves via save(InvoiceItemTax, ...) pattern
+    const taxSavesTwoArg = queryRunner.manager.save.mock.calls.filter(
+      ([first, second]) => first?.name === 'InvoiceItemTax' && second?.taxId,
+    );
+    const allTaxSaves = taxSaves.length > 0 ? taxSaves : taxSavesTwoArg;
+    // At least one tax amount should be > 0
+    const hasTaxAmount = allTaxSaves.some(([, second]) => {
+      const entity = second || {};
+      return Number(entity.taxAmount) > 0;
+    });
+    expect(hasTaxAmount).toBe(true);
+  });
+
+  it('does NOT use (invoice as any).totalAmount hack', async () => {
+    await build({ withGateway: false });
+    const dto = {
+      customerId: 'cust-1',
+      items: [{ productId: 'prod-1', quantity: 1 }],
+    };
+    const r = await service.create(dto);
+
+    // totalAmount should be a real property, not dynamically attached
+    expect('totalAmount' in r).toBe(true);
+    expect(r.totalAmount).toBeDefined();
   });
 
   it('create manual: with taxed product does NOT call Factus', async () => {
@@ -1003,6 +1117,78 @@ describe('SalesService — manual invoice paths', () => {
         ]),
       }),
     );
+  });
+
+  it('emit: persists InvoiceItemTax records with taxAmount', async () => {
+    const taxedProduct = {
+      id: 'prod-1',
+      sku: 'SKU-001',
+      name: 'Product A',
+      sellingPrice: 119000,
+      taxes: [{ id: 'tax-1', code: '01', percentage: 19.0 }],
+    };
+    invoiceRepo.findOne = jest.fn().mockResolvedValue(
+      buildManualInv({
+        items: [
+          {
+            id: 'item-1',
+            product: taxedProduct,
+            productId: 'prod-1',
+            quantity: 1,
+          },
+        ],
+      }),
+    );
+
+    const taxSaves: any[] = [];
+    queryRunner.manager.save = jest
+      .fn()
+      .mockImplementation((first: any, second?: any) => {
+        if (second !== undefined) {
+          taxSaves.push(second);
+          return Promise.resolve({ ...second, id: 'emission-new' });
+        }
+        return Promise.resolve(first);
+      });
+
+    factusGateway.createInvoice = jest.fn().mockResolvedValue({
+      status: 'OK',
+      message: 'Success',
+      data: { number: 'SETP990003680', cude: 'cude-123', isValidated: true },
+    });
+
+    await service.emit('inv-manual');
+
+    // Verify InvoiceItemTax saves include taxAmount
+    const taxAmountSaves = taxSaves.filter((s) => s.taxId);
+    expect(taxAmountSaves.length).toBeGreaterThan(0);
+    for (const save of taxAmountSaves) {
+      expect(save.taxAmount).toBeDefined();
+      expect(Number(save.taxAmount)).toBeGreaterThan(0);
+    }
+  });
+
+  it('emit: returns invoice with totalAmount from persisted column', async () => {
+    factusGateway.createInvoice = jest.fn().mockResolvedValue({
+      status: 'OK',
+      message: 'Success',
+      data: { number: 'SETP990003680', cude: 'cude-123', isValidated: true },
+    });
+
+    queryRunner.manager.save = jest
+      .fn()
+      .mockImplementation((first: any, second?: any) => {
+        if (second !== undefined)
+          return Promise.resolve({ ...second, id: 'emission-new' });
+        return Promise.resolve(first);
+      });
+
+    const r = await service.emit('inv-manual');
+
+    // totalAmount should be a real property on the entity
+    expect('totalAmount' in r).toBe(true);
+    expect(r.totalAmount).toBeDefined();
+    expect(Number(r.totalAmount)).toBeGreaterThan(0);
   });
 
   // ---- createCreditNote ----

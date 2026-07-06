@@ -19,6 +19,7 @@ import { QueryInvoicesDto } from './dto/query-invoices.dto';
 import { ManualInvoiceSearchResultDto } from './dto/manual-invoice-search-result.dto';
 import { CreateSalesNoteDto } from './dto/create-sales-note.dto';
 import { InventoryService } from '../inventory/inventory.service';
+import { User } from '../users/entities/user.entity';
 import { PdfGenerationService } from '../pdf-generation/pdf-generation.service';
 import { PaymentMethodsService } from '../settings/services/payment-methods.service';
 import { PaymentTypesService } from '../settings/services/payment-types.service';
@@ -103,6 +104,7 @@ export class SalesService {
 
       // 2. Validar productos y calcular totales (NO consumir stock aún)
       let totalAmount = 0;
+      let invoiceSubtotal = 0;
       const invoiceItems: InvoiceItem[] = [];
       const allItemsTaxData: Partial<InvoiceItemTax>[][] = [];
 
@@ -123,6 +125,7 @@ export class SalesService {
             : Number(product.sellingPrice);
 
         const subtotal = item.quantity * unitPrice;
+        invoiceSubtotal += subtotal;
         totalAmount += subtotal;
 
         // Cálculo dinámico de impuestos basado en product.taxes
@@ -145,6 +148,7 @@ export class SalesService {
           itemTaxAmount += taxAmt;
           invoiceItemTaxes.push({
             taxId: tax.id,
+            taxAmount: taxAmt,
           });
         }
 
@@ -152,6 +156,9 @@ export class SalesService {
           this.invoiceItemRepository.create({
             productId: item.productId,
             quantity: item.quantity,
+            unitPrice,
+            subtotal,
+            taxAmount: itemTaxAmount,
           }),
         );
 
@@ -176,10 +183,12 @@ export class SalesService {
         status: invoiceStatus,
         installments: createDto.installments ?? undefined,
         items: invoiceItems,
+        totalAmount,
+        subtotal: invoiceSubtotal,
       });
       const savedInvoice = await queryRunner.manager.save(invoice);
 
-      // 6. Guardar InvoiceItemTax para cada item (solo taxId — el resto se computa desde Tax entity)
+      // 6. Guardar InvoiceItemTax para cada item (con taxAmount)
       for (let i = 0; i < savedInvoice.items.length; i++) {
         const savedItem = savedInvoice.items[i];
         const itemTaxes = allItemsTaxData[i];
@@ -188,6 +197,7 @@ export class SalesService {
             await queryRunner.manager.save(InvoiceItemTax, {
               invoiceItem: savedItem,
               taxId: t.taxId as string,
+              taxAmount: t.taxAmount as number,
             });
           }
         }
@@ -231,10 +241,6 @@ export class SalesService {
       // Attach computed fields before returning
       const prefix = savedInvoice.emission ? 'FAC' : 'MAN';
       (savedInvoice as any).invoiceNumber = `${prefix}-${String(savedInvoice.sequentialNumber).padStart(6, '0')}`;
-      (savedInvoice as any).totalAmount = (savedInvoice.items ?? []).reduce(
-        (acc, item) => acc + Number(item.quantity) * Number(item.product?.sellingPrice || 0),
-        0,
-      );
 
       return savedInvoice;
     } catch (error) {
@@ -256,6 +262,7 @@ export class SalesService {
         'items',
         'items.product',
         'items.product.taxes',
+        'items.invoiceItemTaxes',
         'emission',
       ],
     });
@@ -418,28 +425,66 @@ export class SalesService {
       invoice.emission = await queryRunner.manager.save(emission);
       await queryRunner.manager.save(invoice);
 
-      // Persist InvoiceItemTax records for each item (only taxId — rest is derived from Tax entity)
+      // Persist InvoiceItemTax records for each item with computed taxAmount
       for (const item of invoice.items) {
         const taxes = item.product?.taxes || [];
         if (taxes.length === 0) continue;
 
+        // Avoid double-insert: skip if InvoiceItemTax records already exist
+        if (item.invoiceItemTaxes?.length > 0) continue;
+
+        const unitPrice = Number(item.product?.sellingPrice || 0);
+        const totalTaxRate = taxes.reduce(
+          (sum, t) => sum + Number(t.percentage),
+          0,
+        );
+        const priceBeforeTax =
+          totalTaxRate > 0
+            ? Number((unitPrice / (1 + totalTaxRate / 100)).toFixed(2))
+            : unitPrice;
+
         for (const tax of taxes) {
+          const taxAmt = Number(
+            ((priceBeforeTax * Number(tax.percentage)) / 100).toFixed(2),
+          );
           await queryRunner.manager.save(InvoiceItemTax, {
             invoiceItem: item,
             taxId: tax.id,
+            taxAmount: taxAmt,
           });
         }
       }
+
+      // Update item-level financial fields from InvoiceItemTax records
+      for (const item of invoice.items) {
+        const unitPrice = Number(item.product?.sellingPrice || 0);
+        const subtotal = Number(item.quantity) * unitPrice;
+        const taxAmount = (item.invoiceItemTaxes ?? []).reduce(
+          (s, t) => s + Number(t.taxAmount || 0),
+          0,
+        );
+        item.unitPrice = unitPrice;
+        item.subtotal = subtotal;
+        item.taxAmount = taxAmount;
+        await queryRunner.manager.save(item);
+      }
+
+      // Update invoice totals
+      invoice.totalAmount = invoice.items.reduce(
+        (s, i) => s + Number(i.subtotal || 0),
+        0,
+      );
+      invoice.subtotal = invoice.items.reduce(
+        (s, i) => s + Number(i.subtotal || 0),
+        0,
+      );
+      await queryRunner.manager.save(invoice);
 
       await queryRunner.commitTransaction();
 
       // Attach computed fields before returning
       const prefix = invoice.emission ? 'FAC' : 'MAN';
       (invoice as any).invoiceNumber = `${prefix}-${String(invoice.sequentialNumber).padStart(6, '0')}`;
-      (invoice as any).totalAmount = (invoice.items ?? []).reduce(
-        (acc, item) => acc + Number(item.quantity) * Number(item.product?.sellingPrice || 0),
-        0,
-      );
 
       return invoice;
     } catch (error) {
@@ -471,10 +516,7 @@ export class SalesService {
     const result: ManualInvoiceSearchResultDto[] = invoices.map((inv) => {
       const prefix = inv.emission ? 'FAC' : 'MAN';
       const invoiceNumber = `${prefix}-${String(inv.sequentialNumber).padStart(6, '0')}`;
-      const totalAmount = (inv.items ?? []).reduce(
-        (acc, item) => acc + Number(item.quantity) * Number(item.product?.sellingPrice || 0),
-        0,
-      );
+      const totalAmount = Number(inv.totalAmount) || 0;
       return {
         id: inv.id,
         invoiceNumber,
@@ -530,10 +572,7 @@ export class SalesService {
     const enriched = data.map((inv) => {
       const prefix = inv.emission ? 'FAC' : 'MAN';
       const invoiceNumber = `${prefix}-${String(inv.sequentialNumber).padStart(6, '0')}`;
-      const totalAmount = (inv.items ?? []).reduce(
-        (acc, item) => acc + Number(item.quantity) * Number(item.product?.sellingPrice || 0),
-        0,
-      );
+      const totalAmount = Number(inv.totalAmount) || 0;
       const creditSum = (inv.creditNotes ?? []).reduce(
         (acc, cn) => acc + Number(cn.amount),
         0,
@@ -577,10 +616,6 @@ export class SalesService {
     // Compute derived fields
     const prefix = invoice.emission ? 'FAC' : 'MAN';
     (invoice as any).invoiceNumber = `${prefix}-${String(invoice.sequentialNumber).padStart(6, '0')}`;
-    (invoice as any).totalAmount = (invoice.items ?? []).reduce(
-      (acc, item) => acc + Number(item.quantity) * Number(item.product?.sellingPrice || 0),
-      0,
-    );
 
     return invoice;
   }

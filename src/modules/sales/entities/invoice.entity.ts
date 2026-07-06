@@ -111,6 +111,12 @@ export class Invoice {
   @Column({ name: 'factus_reference_code', type: 'varchar', nullable: true })
   factusReferenceCode?: string;
 
+  @Column({ name: 'total_amount', type: 'decimal', precision: 12, scale: 2, default: 0 })
+  totalAmount: number;
+
+  @Column({ type: 'decimal', precision: 12, scale: 2, default: 0 })
+  subtotal: number;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

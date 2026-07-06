@@ -10,6 +10,7 @@ function makeTax(overrides: Partial<InvoiceItemTax> = {}): InvoiceItemTax {
     invoiceItemId: 'inv-item-id',
     invoiceItem: undefined as any,
     taxId: 'tax-uuid',
+    taxAmount: 0,
     tax: { code: '01', name: 'IVA', percentage: 19 } as any,
     ...overrides,
   };
