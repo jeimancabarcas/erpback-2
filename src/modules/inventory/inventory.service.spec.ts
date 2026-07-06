@@ -12,8 +12,6 @@ import {
   ConflictException,
   NotFoundException,
 } from '@nestjs/common';
-import { InvoiceItem } from '../sales/entities/invoice-item.entity';
-import { CreditNoteItem } from '../sales/entities/credit-note-item.entity';
 import { InventoryMovement, MovementType } from './entities/inventory-movement.entity';
 
 describe('InventoryService', () => {
@@ -44,14 +42,6 @@ describe('InventoryService', () => {
     save: jest.fn(),
   };
 
-  const mockInvoiceItemRepository = {
-    find: jest.fn(),
-  };
-
-  const mockCreditNoteItemRepository = {
-    find: jest.fn(),
-  };
-
   const mockMovementRepository = {
     create: jest.fn(),
     save: jest.fn(),
@@ -64,7 +54,6 @@ describe('InventoryService', () => {
     getRepository: jest.fn().mockImplementation((entity) => {
       if (entity === Product) return mockProductRepository;
       if (entity === InventoryBatch) return mockBatchRepository;
-      if (entity === InvoiceItem) return mockInvoiceItemRepository;
     }),
   };
 
@@ -108,14 +97,11 @@ describe('InventoryService', () => {
     mockEntityManager.getRepository.mockImplementation((entity) => {
       if (entity === Product) return mockProductRepository;
       if (entity === InventoryBatch) return mockBatchRepository;
-      if (entity === InvoiceItem) return mockInvoiceItemRepository;
-      if (entity === CreditNoteItem) return mockCreditNoteItemRepository;
       if (entity === InventoryMovement) return mockMovementRepository;
     });
     mockBatchRepository.create.mockImplementation((dto) => dto);
     mockProductRepository.create.mockImplementation((dto) => dto);
     mockMovementRepository.create.mockImplementation((dto) => dto);
-    mockCreditNoteItemRepository.find.mockResolvedValue([]); // default: no returns
   });
 
   describe('UpdateProductDto', () => {
@@ -593,7 +579,7 @@ describe('InventoryService', () => {
   });
 
   describe('getMovements', () => {
-    it('should query from movement table when audit movements exist (auto-detect gate)', async () => {
+    it('should query movements from audit table with correct response shape', async () => {
       const mockMovements = [
         {
           id: 'mvmt-uuid-1',
@@ -610,7 +596,6 @@ describe('InventoryService', () => {
         },
       ] as any[];
 
-      mockMovementRepository.count.mockResolvedValue(1);
       mockMovementRepository.findAndCount.mockResolvedValue([
         mockMovements,
         1,
@@ -630,7 +615,7 @@ describe('InventoryService', () => {
       expect(result.data[0].operatorId).toBe('user-uuid');
     });
 
-    it('should filter by type when query param is provided (new path)', async () => {
+    it('should filter by type when query param is provided', async () => {
       const outMovements = [
         {
           id: 'mvmt-out-uuid',
@@ -646,7 +631,6 @@ describe('InventoryService', () => {
         },
       ] as any[];
 
-      mockMovementRepository.count.mockResolvedValue(1);
       mockMovementRepository.findAndCount.mockResolvedValue([
         outMovements,
         1,
@@ -663,31 +647,7 @@ describe('InventoryService', () => {
       expect(result.data[0].type).toBe('Out');
     });
 
-    it('should fall back to legacy aggregation when no audit movements exist', async () => {
-      mockMovementRepository.count.mockResolvedValue(0);
-
-      const mockBatches = [
-        {
-          id: 'b1111111-uuid',
-          createdAt: new Date('2026-06-20T12:00:00Z'),
-          initialQuantity: 10,
-          purchaseOrderId: null,
-          product: { name: 'Test Product' },
-        },
-      ] as any[];
-
-      mockBatchRepository.find.mockResolvedValue(mockBatches);
-      mockInvoiceItemRepository.find.mockResolvedValue([]);
-
-      const result = await service.getMovements({});
-
-      expect(mockMovementRepository.findAndCount).not.toHaveBeenCalled();
-      expect(batchRepo.find).toHaveBeenCalled();
-      expect(result.data).toHaveLength(1);
-      expect(result.meta.total).toBe(1);
-    });
-
-    it('should paginate results correctly (new path)', async () => {
+    it('should paginate results correctly', async () => {
       const allMovements = Array.from({ length: 25 }, (_, i) => ({
         id: `mvmt-${i}`,
         createdAt: new Date(`2026-07-0${(i % 9) + 1}T10:00:00Z`),

@@ -11,8 +11,6 @@ import { Product } from './entities/product.entity';
 import { Tax } from '../settings/entities/tax.entity';
 import { InventoryBatch } from './entities/inventory-batch.entity';
 import { InventoryMovement, MovementType } from './entities/inventory-movement.entity';
-import { InvoiceItem } from '../sales/entities/invoice-item.entity';
-import { CreditNoteItem } from '../sales/entities/credit-note-item.entity';
 import { CreateInventoryCategoryDto } from './dto/create-inventory-category.dto';
 import { UpdateInventoryCategoryDto } from './dto/update-inventory-category.dto';
 import { QueryCategoriesDto } from './dto/query-categories.dto';
@@ -618,29 +616,6 @@ export class InventoryService {
       userId,
     } = queryDto;
 
-    // Auto-detect gate: if audit table has data, use it
-    const hasMovements = (await this.movementRepository.count()) > 0;
-
-    if (hasMovements) {
-      return this.getMovementsFromAuditTable(queryDto);
-    }
-
-    // Legacy fallback: 3-table aggregation
-    return this.getMovementsLegacy(queryDto);
-  }
-
-  private async getMovementsFromAuditTable(
-    queryDto: QueryMovementsDto,
-  ): Promise<PaginatedResult<any>> {
-    const {
-      page = 1,
-      limit = 10,
-      sortBy = 'date',
-      order = 'DESC',
-      type,
-      userId,
-    } = queryDto;
-
     const skip = (page - 1) * limit;
 
     const where: any = {};
@@ -673,125 +648,6 @@ export class InventoryService {
 
     return {
       data: mappedData,
-      meta: {
-        total,
-        page,
-        lastPage: Math.ceil(total / limit),
-        limit,
-      },
-    };
-  }
-
-  private async getMovementsLegacy(
-    queryDto: QueryMovementsDto,
-  ): Promise<PaginatedResult<any>> {
-    const {
-      page = 1,
-      limit = 10,
-      sortBy = 'date',
-      order = 'DESC',
-      type,
-      userId,
-    } = queryDto;
-
-    // 1. Obtener entradas/salidas desde los lotes creados
-    const batches = await this.batchRepository.find({
-      relations: ['product', 'user'],
-    });
-
-    const batchMovements = batches.map((batch) => {
-      const isNegative = Number(batch.initialQuantity) < 0;
-      const isManual = !batch.purchaseOrderId;
-
-      const movementType = isNegative ? 'Out' : 'In';
-      const idPrefix = isNegative ? 'OUT' : 'IN';
-
-      let origin = 'Proveedor (Compra)';
-      let destination = 'Almacén Principal';
-
-      if (isManual) {
-        origin = 'Ajuste de inventario';
-        destination = 'Ajuste de inventario';
-      }
-
-      return {
-        id: `${idPrefix}-${batch.id.substring(0, 8).toUpperCase()}`,
-        date: batch.createdAt,
-        type: movementType,
-        product: batch.product ? batch.product.name : 'Producto Eliminado',
-        quantity: Math.abs(Number(batch.initialQuantity)),
-        origin,
-        destination,
-        operator: batch.user ? batch.user.email : 'Sistema',
-        operatorId: batch.userId,
-      };
-    });
-
-    // 2. Obtener salidas (Out) desde los ítems facturados de ventas
-    const invoiceItemRepo =
-      this.productRepository.manager.getRepository(InvoiceItem);
-    const invoiceItems = await invoiceItemRepo.find({
-      relations: ['product', 'invoice'],
-    });
-
-    const outMovements = invoiceItems.map((item) => ({
-      id: `OUT-${item.id.substring(0, 8).toUpperCase()}`,
-      date: item.invoice?.date ? new Date(item.invoice.date) : new Date(),
-      type: 'Out' as const,
-      product: item.product ? item.product.name : 'Producto Eliminado',
-      quantity: item.quantity,
-      origin: 'Almacén Principal',
-      destination: 'Cliente Final',
-      operator: 'Sistema',
-      operatorId: null,
-    }));
-
-    // 3. Obtener entradas (In) desde notas crédito con devolución (restoreStock)
-    const creditNoteItemRepo =
-      this.productRepository.manager.getRepository(CreditNoteItem);
-    const creditNoteItems = await creditNoteItemRepo.find({
-      where: { restored: true },
-      relations: ['product', 'creditNote'],
-    });
-
-    const returnMovements = creditNoteItems.map((item) => ({
-      id: `RET-${item.id.substring(0, 8).toUpperCase()}`,
-      date: item.creditNote?.createdAt,
-      type: 'In' as const,
-      product: item.product ? item.product.name : 'Producto Eliminado',
-      quantity: item.quantity,
-      origin: 'Cliente Final (Devolución)',
-      destination: 'Almacén Principal',
-      operator: 'Sistema',
-      operatorId: null,
-    }));
-
-    // 4. Unificar
-    let movements = [...batchMovements, ...outMovements, ...returnMovements];
-
-    // 5. Filtrar
-    if (type) {
-      movements = movements.filter((m) => m.type === type);
-    }
-    if (userId) {
-      movements = movements.filter((m) => m.operatorId === userId);
-    }
-
-    // 6. Ordenar
-    movements.sort((a, b) => {
-      const aVal = a[sortBy];
-      const bVal = b[sortBy];
-      const cmp = aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
-      return order === 'DESC' ? -cmp : cmp;
-    });
-
-    // 7. Paginar
-    const total = movements.length;
-    const skip = (page - 1) * limit;
-    const data = movements.slice(skip, skip + limit);
-
-    return {
-      data,
       meta: {
         total,
         page,
