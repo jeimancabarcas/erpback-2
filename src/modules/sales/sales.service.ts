@@ -126,6 +126,9 @@ export class SalesService {
           item.productId,
           item.quantity,
           queryRunner.manager,
+          {
+            referenceType: 'SALES_INVOICE',
+          },
         );
 
         const subtotal = item.quantity * unitPrice;

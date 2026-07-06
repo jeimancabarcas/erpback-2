@@ -10,6 +10,7 @@ import { InventoryCategory } from './entities/inventory-category.entity';
 import { Product } from './entities/product.entity';
 import { Tax } from '../settings/entities/tax.entity';
 import { InventoryBatch } from './entities/inventory-batch.entity';
+import { InventoryMovement, MovementType } from './entities/inventory-movement.entity';
 import { InvoiceItem } from '../sales/entities/invoice-item.entity';
 import { CreditNoteItem } from '../sales/entities/credit-note-item.entity';
 import { CreateInventoryCategoryDto } from './dto/create-inventory-category.dto';
@@ -38,7 +39,34 @@ export class InventoryService {
     private readonly productRepository: Repository<Product>,
     @InjectRepository(InventoryBatch)
     private readonly batchRepository: Repository<InventoryBatch>,
+    @InjectRepository(InventoryMovement)
+    private readonly movementRepository: Repository<InventoryMovement>,
   ) {}
+
+  private async recordMovement(data: {
+    productId: string;
+    type: MovementType;
+    quantity: number;
+    origin: string;
+    destination: string;
+    referenceType: string;
+    referenceId?: string;
+    userId?: string;
+    metadata?: Record<string, any>;
+  }): Promise<void> {
+    const movement = this.movementRepository.create({
+      productId: data.productId,
+      type: data.type,
+      quantity: data.quantity,
+      origin: data.origin,
+      destination: data.destination,
+      referenceType: data.referenceType,
+      referenceId: data.referenceId ?? null,
+      userId: data.userId ?? null,
+      metadata: data.metadata ?? null,
+    });
+    await this.movementRepository.save(movement);
+  }
 
   async create(
     createDto: CreateInventoryCategoryDto,
@@ -164,6 +192,16 @@ export class InventoryService {
         user,
       });
       await this.batchRepository.save(initialBatch);
+
+      await this.recordMovement({
+        productId: savedProduct.id,
+        type: MovementType.IN,
+        quantity: savedProduct.currentStock,
+        origin: 'Stock Inicial',
+        destination: 'Almacén Principal',
+        referenceType: 'INITIAL_STOCK',
+        userId: user?.id,
+      });
     }
 
     return savedProduct;
@@ -276,6 +314,17 @@ export class InventoryService {
           await productRepo.save(product);
 
           await this.recalculateAveragePrice(product.id, manager);
+
+          await this.recordMovement({
+            productId: product.id,
+            type: MovementType.IN,
+            quantity: diff,
+            origin: 'Ajuste de inventario',
+            destination: 'Ajuste de inventario',
+            referenceType: 'MANUAL_ADJUSTMENT',
+            userId: user?.id,
+            metadata: adjustmentReason ? { adjustmentReason } : undefined,
+          });
         } else if (diff < 0) {
           const absDiff = Math.abs(diff);
           if (oldStock < absDiff) {
@@ -284,7 +333,11 @@ export class InventoryService {
             );
           }
 
-          await this.consumeStock(product.id, absDiff, manager);
+          await this.consumeStock(product.id, absDiff, manager, {
+            referenceType: 'MANUAL_ADJUSTMENT',
+            referenceId: undefined,
+            user,
+          });
 
           const avgPrice = Number(product.averagePurchasePrice) || 0;
           const trackingBatch = batchRepo.create({
@@ -354,6 +407,17 @@ export class InventoryService {
     // Recalcular precio promedio basado en lotes con stock
     await this.recalculateAveragePrice(productId);
 
+    const isPurchase = !!purchaseOrderId;
+    await this.recordMovement({
+      productId,
+      type: MovementType.IN,
+      quantity,
+      origin: isPurchase ? 'Proveedor (Compra)' : 'Ajuste de inventario',
+      destination: isPurchase ? 'Almacén Principal' : 'Ajuste de inventario',
+      referenceType: isPurchase ? 'PURCHASE_ORDER' : 'MANUAL_ADJUSTMENT',
+      referenceId: purchaseOrderId,
+    });
+
     return this.findOneProduct(productId);
   }
 
@@ -361,6 +425,7 @@ export class InventoryService {
     productId: string,
     quantity: number,
     manager?: EntityManager,
+    context?: MovementContext,
   ): Promise<number> {
     const productRepo = manager
       ? manager.getRepository(Product)
@@ -406,6 +471,20 @@ export class InventoryService {
     // Recalcular precio promedio después de consumir lotes
     await this.recalculateAveragePrice(productId, manager);
 
+    if (context) {
+      const isSale = context.referenceType === 'SALES_INVOICE';
+      await this.recordMovement({
+        productId,
+        type: MovementType.OUT,
+        quantity,
+        origin: isSale ? 'Almacén Principal' : 'Ajuste de inventario',
+        destination: isSale ? 'Cliente Final' : 'Ajuste de inventario',
+        referenceType: context.referenceType,
+        referenceId: context.referenceId,
+        userId: context.user?.id,
+      });
+    }
+
     return totalCost;
   }
 
@@ -425,6 +504,7 @@ export class InventoryService {
     productId: string,
     quantity: number,
     manager?: EntityManager,
+    context?: MovementContext,
   ): Promise<{ totalCost: number; restoredQuantity: number }> {
     const productRepo = manager
       ? manager.getRepository(Product)
@@ -474,6 +554,20 @@ export class InventoryService {
 
     // Recalculate average price after restoring batches
     await this.recalculateAveragePrice(productId, manager);
+
+    if (context) {
+      const isCreditNote = context.referenceType === 'CREDIT_NOTE';
+      await this.recordMovement({
+        productId,
+        type: MovementType.IN,
+        quantity,
+        origin: isCreditNote ? 'Cliente Final (Devolución)' : 'Ajuste de inventario',
+        destination: isCreditNote ? 'Almacén Principal' : 'Ajuste de inventario',
+        referenceType: context.referenceType,
+        referenceId: context.referenceId,
+        userId: context.user?.id,
+      });
+    }
 
     return { totalCost, restoredQuantity: quantity };
   }

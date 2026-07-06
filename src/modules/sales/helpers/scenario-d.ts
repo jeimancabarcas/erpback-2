@@ -46,10 +46,14 @@ export class ScenarioDHandler implements ScenarioHandler {
     // Loop ALL invoice items for full annulment
     for (const invoiceItem of invoice.items) {
       // Restore stock for each item
-      await this.inventoryService.restoreStock(
+      const { restoredQuantity } = await this.inventoryService.restoreStock(
         invoiceItem.productId,
         invoiceItem.quantity,
         queryRunner,
+        {
+          referenceType: 'CREDIT_NOTE',
+          referenceId: invoice.id,
+        },
       );
 
       const unitPrice = Number(invoiceItem.product?.sellingPrice || 0);
@@ -94,7 +98,7 @@ export class ScenarioDHandler implements ScenarioHandler {
         subtotal,
         productId: invoiceItem.productId,
         taxAmount: totalTaxAmount,
-        restored: true,
+        restored: restoredQuantity > 0,
         noteItemTaxes,
       });
 

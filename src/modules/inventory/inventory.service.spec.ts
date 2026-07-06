@@ -215,6 +215,41 @@ describe('InventoryService', () => {
       expect(result).toEqual(mockProduct);
     });
 
+    it('should record an INITIAL_STOCK movement when currentStock > 0', async () => {
+      const createDto = {
+        name: 'Test Product Movement',
+        sku: 'TEST-SKU-MOVEMENT',
+        currentStock: 10,
+        minStock: 2,
+        maxStock: 50,
+        sellingPrice: 100,
+      };
+
+      const mockProduct = {
+        id: 'prod-uuid-movement',
+        ...createDto,
+        averagePurchasePrice: 0,
+      } as Product;
+
+      mockProductRepository.findOne.mockResolvedValue(null);
+      mockProductRepository.create.mockReturnValue(mockProduct);
+      mockProductRepository.save.mockResolvedValue(mockProduct);
+
+      await service.createProduct(createDto);
+
+      expect(mockMovementRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          productId: 'prod-uuid-movement',
+          type: MovementType.IN,
+          quantity: 10,
+          origin: 'Stock Inicial',
+          destination: 'Almacén Principal',
+          referenceType: 'INITIAL_STOCK',
+        }),
+      );
+      expect(mockMovementRepository.save).toHaveBeenCalled();
+    });
+
     it('should create initial batch with associated user when user is passed', async () => {
       const createDto = {
         name: 'Test Product User',
@@ -398,6 +433,69 @@ describe('InventoryService', () => {
       });
     });
 
+    it('should record a MANUAL_ADJUSTMENT In movement for positive stock diff', async () => {
+      const updateDto: UpdateProductDto = {
+        currentStock: 15,
+        adjustmentReason: 'Auditoría',
+      };
+
+      const lockedProduct = { ...originalProduct };
+      mockProductRepository.findOne.mockResolvedValue(lockedProduct);
+      mockBatchRepository.find.mockResolvedValue([
+        { remainingQuantity: 10, purchasePrice: 15.0 },
+      ]);
+      mockProductRepository.save.mockImplementation((p) => Promise.resolve(p));
+
+      await service.updateProduct(productId, updateDto);
+
+      expect(mockMovementRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          productId,
+          type: MovementType.IN,
+          quantity: 5,
+          origin: 'Ajuste de inventario',
+          destination: 'Ajuste de inventario',
+          referenceType: 'MANUAL_ADJUSTMENT',
+        }),
+      );
+      expect(mockMovementRepository.save).toHaveBeenCalled();
+    });
+
+    it('should record a MANUAL_ADJUSTMENT Out movement for negative stock diff', async () => {
+      const updateDto: UpdateProductDto = {
+        currentStock: 6,
+        adjustmentReason: 'Pérdida',
+      };
+
+      const lockedProduct = { ...originalProduct };
+      mockProductRepository.findOne.mockResolvedValue(lockedProduct);
+      const activeBatches = [
+        {
+          id: 'batch-1',
+          productId,
+          remainingQuantity: 10,
+          purchasePrice: 15.0,
+          save: jest.fn(),
+        },
+      ];
+      mockBatchRepository.find.mockResolvedValue(activeBatches);
+      mockProductRepository.save.mockImplementation((p) => Promise.resolve(p));
+
+      await service.updateProduct(productId, updateDto);
+
+      expect(mockMovementRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          productId,
+          type: MovementType.OUT,
+          quantity: 4,
+          origin: 'Ajuste de inventario',
+          destination: 'Ajuste de inventario',
+          referenceType: 'MANUAL_ADJUSTMENT',
+        }),
+      );
+      expect(mockMovementRepository.save).toHaveBeenCalled();
+    });
+
     it('should assign user to negative adjustment tracking batch', async () => {
       const updateDto: UpdateProductDto = {
         currentStock: 6,
@@ -428,6 +526,69 @@ describe('InventoryService', () => {
         adjustmentReason: 'Pérdida',
         user: mockUser,
       });
+    });
+  });
+
+  describe('updateStock — movement recording', () => {
+    it('should record a PURCHASE_ORDER movement when purchaseOrderId is provided', async () => {
+      const productId = 'prod-uuid-stock';
+      const mockProduct = {
+        id: productId,
+        name: 'Test Product',
+        currentStock: 5,
+        averagePurchasePrice: 10,
+      } as Product;
+
+      mockProductRepository.findOne.mockResolvedValue(mockProduct);
+      mockBatchRepository.create.mockReturnValue({});
+      mockBatchRepository.save.mockResolvedValue({});
+      mockBatchRepository.find.mockResolvedValue([]);
+      mockProductRepository.save.mockResolvedValue(mockProduct);
+
+      await service.updateStock(productId, 10, 15.5, 'po-uuid');
+
+      expect(mockMovementRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          productId,
+          type: MovementType.IN,
+          quantity: 10,
+          origin: 'Proveedor (Compra)',
+          destination: 'Almacén Principal',
+          referenceType: 'PURCHASE_ORDER',
+          referenceId: 'po-uuid',
+        }),
+      );
+      expect(mockMovementRepository.save).toHaveBeenCalled();
+    });
+
+    it('should record a MANUAL_ADJUSTMENT movement when purchaseOrderId is not provided', async () => {
+      const productId = 'prod-uuid-manual';
+      const mockProduct = {
+        id: productId,
+        name: 'Test Product',
+        currentStock: 5,
+        averagePurchasePrice: 10,
+      } as Product;
+
+      mockProductRepository.findOne.mockResolvedValue(mockProduct);
+      mockBatchRepository.create.mockReturnValue({});
+      mockBatchRepository.save.mockResolvedValue({});
+      mockBatchRepository.find.mockResolvedValue([]);
+      mockProductRepository.save.mockResolvedValue(mockProduct);
+
+      await service.updateStock(productId, 5, 12.0);
+
+      expect(mockMovementRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          productId,
+          type: MovementType.IN,
+          quantity: 5,
+          origin: 'Ajuste de inventario',
+          destination: 'Ajuste de inventario',
+          referenceType: 'MANUAL_ADJUSTMENT',
+        }),
+      );
+      expect(mockMovementRepository.save).toHaveBeenCalled();
     });
   });
 
@@ -561,6 +722,84 @@ describe('InventoryService', () => {
   // ---------------------------------------------------------------------------
   // restoreStock
   // ---------------------------------------------------------------------------
+  describe('consumeStock — movement recording', () => {
+    const productId = 'prod-consume-mvmt';
+
+    it('should record a SALES_INVOICE Out movement when context is provided', async () => {
+      const product = {
+        id: productId,
+        currentStock: 20,
+        averagePurchasePrice: 15,
+        name: 'Test Product',
+      } as Product;
+
+      const batch = {
+        id: 'batch-si',
+        productId,
+        initialQuantity: 20,
+        remainingQuantity: 20,
+        purchasePrice: 10,
+        createdAt: new Date('2026-06-20T10:00:00Z'),
+        save: jest.fn(),
+      };
+
+      mockProductRepository.findOne.mockResolvedValue(product);
+      mockBatchRepository.find.mockResolvedValue([batch]);
+      mockProductRepository.save.mockImplementation((p: any) =>
+        Promise.resolve(p),
+      );
+
+      const cost = await service.consumeStock(productId, 5, undefined, {
+        referenceType: 'SALES_INVOICE',
+        referenceId: 'inv-uuid',
+      });
+
+      expect(cost).toBeGreaterThan(0);
+      expect(mockMovementRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          productId,
+          type: MovementType.OUT,
+          quantity: 5,
+          origin: 'Almacén Principal',
+          destination: 'Cliente Final',
+          referenceType: 'SALES_INVOICE',
+          referenceId: 'inv-uuid',
+        }),
+      );
+      expect(mockMovementRepository.save).toHaveBeenCalled();
+    });
+
+    it('should NOT record a movement when consumeStock is called without context', async () => {
+      const product = {
+        id: productId,
+        currentStock: 20,
+        averagePurchasePrice: 15,
+        name: 'Test Product',
+      } as Product;
+
+      const batch = {
+        id: 'batch-si-noctx',
+        productId,
+        initialQuantity: 20,
+        remainingQuantity: 20,
+        purchasePrice: 10,
+        createdAt: new Date('2026-06-20T10:00:00Z'),
+        save: jest.fn(),
+      };
+
+      mockProductRepository.findOne.mockResolvedValue(product);
+      mockBatchRepository.find.mockResolvedValue([batch]);
+      mockProductRepository.save.mockImplementation((p: any) =>
+        Promise.resolve(p),
+      );
+
+      await service.consumeStock(productId, 5);
+
+      expect(mockMovementRepository.create).not.toHaveBeenCalled();
+      expect(mockMovementRepository.save).not.toHaveBeenCalled();
+    });
+  });
+
   describe('InventoryMovement Entity', () => {
     it('should support MovementType enum values (In and Out)', () => {
       expect(MovementType.IN).toBe('In');
@@ -754,6 +993,92 @@ describe('InventoryService', () => {
       await expect(service.restoreStock('nonexistent', 1)).rejects.toThrow(
         NotFoundException,
       );
+    });
+
+    it('should record a CREDIT_NOTE In movement when context is provided', async () => {
+      const product = {
+        id: productId,
+        currentStock: 7,
+        averagePurchasePrice: 15,
+        name: 'Test Product',
+      } as Product;
+
+      const batch = {
+        id: 'batch-cn',
+        productId,
+        initialQuantity: 10,
+        remainingQuantity: 7,
+        purchasePrice: 10,
+        createdAt: new Date('2026-06-20T10:00:00Z'),
+      } as InventoryBatch;
+
+      mockProductRepository.findOne.mockResolvedValue(product);
+      let currentBatch = { ...batch };
+      mockBatchRepository.find.mockImplementation(() =>
+        Promise.resolve([currentBatch]),
+      );
+      mockProductRepository.save.mockImplementation((p: any) =>
+        Promise.resolve(p),
+      );
+      mockBatchRepository.save.mockImplementation((b: any) => {
+        currentBatch = b;
+        return Promise.resolve(b);
+      });
+
+      await service.restoreStock(productId, 2, undefined, {
+        referenceType: 'CREDIT_NOTE',
+        referenceId: 'cn-uuid',
+      });
+
+      expect(mockMovementRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          productId,
+          type: MovementType.IN,
+          quantity: 2,
+          origin: 'Cliente Final (Devolución)',
+          destination: 'Almacén Principal',
+          referenceType: 'CREDIT_NOTE',
+          referenceId: 'cn-uuid',
+        }),
+      );
+      expect(mockMovementRepository.save).toHaveBeenCalled();
+    });
+
+    it('should NOT record a movement when restoreStock is called without context', async () => {
+      const product = {
+        id: productId,
+        currentStock: 7,
+        averagePurchasePrice: 15,
+        name: 'Test Product',
+      } as Product;
+
+      const batch = {
+        id: 'batch-noctx',
+        productId,
+        initialQuantity: 10,
+        remainingQuantity: 7,
+        purchasePrice: 10,
+        createdAt: new Date('2026-06-20T10:00:00Z'),
+      } as InventoryBatch;
+
+      mockProductRepository.findOne.mockResolvedValue(product);
+      let currentBatch = { ...batch };
+      mockBatchRepository.find.mockImplementation(() =>
+        Promise.resolve([currentBatch]),
+      );
+      mockProductRepository.save.mockImplementation((p: any) =>
+        Promise.resolve(p),
+      );
+      mockBatchRepository.save.mockImplementation((b: any) => {
+        currentBatch = b;
+        return Promise.resolve(b);
+      });
+
+      await service.restoreStock(productId, 2);
+
+      // Without context, no movement should be recorded
+      expect(mockMovementRepository.create).not.toHaveBeenCalled();
+      expect(mockMovementRepository.save).not.toHaveBeenCalled();
     });
 
     it('should participate in a transaction when manager is provided', async () => {
