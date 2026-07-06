@@ -13,6 +13,7 @@ import { Supplier } from './modules/suppliers/entities/supplier.entity';
 import { PurchaseOrder } from './modules/purchase-orders/entities/purchase-order.entity';
 import { PurchaseOrderItem } from './modules/purchase-orders/entities/purchase-order-item.entity';
 import { InventoryBatch } from './modules/inventory/entities/inventory-batch.entity';
+import { InventoryMovement } from './modules/inventory/entities/inventory-movement.entity';
 import { CustomersModule } from './modules/customers/customers.module';
 import { Customer } from './modules/customers/entities/customer.entity';
 import { PaymentRecord } from './modules/customers/entities/payment-record.entity';
@@ -55,6 +56,7 @@ import { PaymentType } from './modules/settings/entities/payment-type.entity';
           PurchaseOrder,
           PurchaseOrderItem,
           InventoryBatch,
+          InventoryMovement,
           Customer,
           Invoice,
           InvoiceItem,

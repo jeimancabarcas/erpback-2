@@ -123,7 +123,7 @@ describe('SalesService.findAll — netTotal computation', () => {
           provide: InventoryService,
           useValue: {
             consumeStock: jest.fn(),
-            restoreStock: jest.fn().mockResolvedValue(0),
+            restoreStock: jest.fn().mockResolvedValue({ totalCost: 0, restoredQuantity: 1 }),
           },
         },
         { provide: PdfGenerationService, useValue: {} },
@@ -280,7 +280,7 @@ describe('SalesService.create() — sequential numbering', () => {
           provide: InventoryService,
           useValue: {
             consumeStock: jest.fn(),
-            restoreStock: jest.fn().mockResolvedValue(0),
+            restoreStock: jest.fn().mockResolvedValue({ totalCost: 0, restoredQuantity: 1 }),
           },
         },
         { provide: PdfGenerationService, useValue: {} },
@@ -295,7 +295,7 @@ describe('SalesService.create() — sequential numbering', () => {
           provide: ScenarioDHandler,
           useFactory: () =>
             new ScenarioDHandler({
-              restoreStock: jest.fn().mockResolvedValue(0),
+              restoreStock: jest.fn().mockResolvedValue({ totalCost: 0, restoredQuantity: 1 }),
             } as any),
         },
         { provide: PaymentMethodsService, useValue: { findOne: jest.fn().mockResolvedValue({ code: '10' }), findByCode: jest.fn().mockResolvedValue({ code: '10' }) } },
@@ -648,7 +648,7 @@ describe('SalesService — manual invoice paths', () => {
           provide: InventoryService,
           useValue: {
             consumeStock: jest.fn(),
-            restoreStock: jest.fn().mockResolvedValue(0),
+            restoreStock: jest.fn().mockResolvedValue({ totalCost: 0, restoredQuantity: 1 }),
           },
         },
         { provide: PdfGenerationService, useValue: pdfService },
@@ -663,7 +663,7 @@ describe('SalesService — manual invoice paths', () => {
           provide: ScenarioDHandler,
           useFactory: () =>
             new ScenarioDHandler({
-              restoreStock: jest.fn().mockResolvedValue(0),
+              restoreStock: jest.fn().mockResolvedValue({ totalCost: 0, restoredQuantity: 1 }),
             } as any),
         },
         { provide: PaymentMethodsService, useValue: { findOne: jest.fn().mockResolvedValue({ code: '10' }), findByCode: jest.fn().mockResolvedValue({ code: '10' }) } },
@@ -1024,7 +1024,7 @@ describe('SalesService — manual invoice paths', () => {
           provide: InventoryService,
           useValue: {
             consumeStock: jest.fn(),
-            restoreStock: jest.fn().mockResolvedValue(0),
+            restoreStock: jest.fn().mockResolvedValue({ totalCost: 0, restoredQuantity: 1 }),
           },
         },
         { provide: PdfGenerationService, useValue: pdfService },
@@ -1037,7 +1037,7 @@ describe('SalesService — manual invoice paths', () => {
           provide: ScenarioDHandler,
           useFactory: () =>
             new ScenarioDHandler({
-              restoreStock: jest.fn().mockResolvedValue(0),
+              restoreStock: jest.fn().mockResolvedValue({ totalCost: 0, restoredQuantity: 1 }),
             } as any),
         },
         { provide: PaymentMethodsService, useValue: { findOne: jest.fn().mockResolvedValue({ code: '10' }), findByCode: jest.fn().mockResolvedValue({ code: '10' }) } },
@@ -1095,7 +1095,7 @@ describe('SalesService — manual invoice paths', () => {
           provide: InventoryService,
           useValue: {
             consumeStock: jest.fn(),
-            restoreStock: jest.fn().mockResolvedValue(0),
+            restoreStock: jest.fn().mockResolvedValue({ totalCost: 0, restoredQuantity: 1 }),
           },
         },
         { provide: PdfGenerationService, useValue: pdfService },
@@ -1108,7 +1108,7 @@ describe('SalesService — manual invoice paths', () => {
           provide: ScenarioDHandler,
           useFactory: () =>
             new ScenarioDHandler({
-              restoreStock: jest.fn().mockResolvedValue(0),
+              restoreStock: jest.fn().mockResolvedValue({ totalCost: 0, restoredQuantity: 1 }),
             } as any),
         },
         { provide: PaymentMethodsService, useValue: { findOne: jest.fn().mockResolvedValue({ code: '10' }), findByCode: jest.fn().mockResolvedValue({ code: '10' }) } },
@@ -1282,7 +1282,7 @@ describe('SalesService — guard: electronic note for manual invoice', () => {
           provide: InventoryService,
           useValue: {
             consumeStock: jest.fn(),
-            restoreStock: jest.fn().mockResolvedValue(0),
+            restoreStock: jest.fn().mockResolvedValue({ totalCost: 0, restoredQuantity: 1 }),
           },
         },
         { provide: PdfGenerationService, useValue: pdfService },
@@ -1297,7 +1297,7 @@ describe('SalesService — guard: electronic note for manual invoice', () => {
           provide: ScenarioDHandler,
           useFactory: () =>
             new ScenarioDHandler({
-              restoreStock: jest.fn().mockResolvedValue(0),
+              restoreStock: jest.fn().mockResolvedValue({ totalCost: 0, restoredQuantity: 1 }),
             } as any),
         },
         { provide: PaymentMethodsService, useValue: { findOne: jest.fn().mockResolvedValue({ code: '10' }), findByCode: jest.fn().mockResolvedValue({ code: '10' }) } },
@@ -1336,6 +1336,122 @@ describe('SalesService — guard: electronic note for manual invoice', () => {
     );
     await service.createCreditNote('inv-electronic', dto);
     expect(factusGateway.createCreditNote).toHaveBeenCalledTimes(1);
+  });
+
+  it('should set restored false when restoreStock returns zero restoredQuantity', async () => {
+    let capturedRestored: boolean | undefined;
+
+    const qr = {
+      connect: jest.fn(),
+      startTransaction: jest.fn(),
+      commitTransaction: jest.fn(),
+      rollbackTransaction: jest.fn(),
+      release: jest.fn(),
+      manager: {
+        findOne: jest.fn(),
+        count: jest.fn().mockResolvedValue(0),
+        createQueryBuilder: jest.fn().mockReturnValue({
+          select: jest.fn().mockReturnThis(),
+          addSelect: jest.fn().mockReturnThis(),
+          where: jest.fn().mockReturnThis(),
+          andWhere: jest.fn().mockReturnThis(),
+          innerJoin: jest.fn().mockReturnThis(),
+          groupBy: jest.fn().mockReturnThis(),
+          getRawOne: jest.fn().mockResolvedValue({ total: '0' }),
+          getRawMany: jest.fn().mockResolvedValue([]),
+        }),
+        save: jest.fn((first: any, second?: any) => {
+          const entity = second !== undefined ? second : first;
+          // Capture restored from CreditNoteItem saves
+          if (entity && 'restored' in entity && 'codeReference' in entity) {
+            capturedRestored = entity.restored;
+          }
+          if (entity && entity.correctionConceptCode) {
+            // CreditNote save — return with an id
+            return Promise.resolve({ ...entity, id: 'cn-captured' });
+          }
+          return Promise.resolve(entity);
+        }),
+      },
+    };
+
+    const creditNoteItemRepoMock = {
+      ...repoMock(),
+      save: jest.fn((e: any) => {
+        if (e && 'restored' in e) {
+          capturedRestored = e.restored;
+        }
+        return Promise.resolve({ ...e, id: 'cni-1' });
+      }),
+    };
+
+    const mod = await Test.createTestingModule({
+      providers: [
+        SalesService,
+        { provide: getRepositoryToken(Invoice), useValue: invoiceRepo },
+        { provide: getRepositoryToken(InvoiceItem), useValue: repoMock() },
+        {
+          provide: getRepositoryToken(InvoiceElectronicEmission),
+          useValue: emissionRepo,
+        },
+        {
+          provide: getRepositoryToken(CreditNote),
+          useValue: {
+            ...repoMock(),
+            find: jest.fn().mockResolvedValue([]),
+            findOne: jest.fn().mockResolvedValue(null),
+            create: jest.fn((d: any) => ({ ...d, id: 'cn-captured' })),
+          },
+        },
+        {
+          provide: getRepositoryToken(CreditNoteItem),
+          useValue: creditNoteItemRepoMock,
+        },
+        {
+          provide: getRepositoryToken(CreditNoteItemTax),
+          useValue: repoMock(),
+        },
+        { provide: 'IFactusInvoicingGateway', useValue: factusGateway },
+        {
+          provide: InventoryService,
+          useValue: {
+            consumeStock: jest.fn(),
+            restoreStock: jest.fn().mockResolvedValue({ totalCost: 0, restoredQuantity: 0 }),
+          },
+        },
+        { provide: PdfGenerationService, useValue: pdfService },
+        {
+          provide: DataSource,
+          useValue: { createQueryRunner: jest.fn().mockReturnValue(qr) },
+        },
+        {
+          provide: ScenarioDHandler,
+          useFactory: () =>
+            new ScenarioDHandler({
+              restoreStock: jest.fn().mockResolvedValue({ totalCost: 0, restoredQuantity: 0 }),
+            } as any),
+        },
+        {
+          provide: PaymentMethodsService,
+          useValue: {
+            findOne: jest.fn().mockResolvedValue({ code: '10' }),
+            findByCode: jest.fn().mockResolvedValue({ code: '10' }),
+          },
+        },
+        {
+          provide: PaymentTypesService,
+          useValue: {
+            findOne: jest.fn().mockResolvedValue({ code: '1' }),
+            findByCode: jest.fn().mockResolvedValue({ code: '1' }),
+          },
+        },
+      ],
+    }).compile();
+    const svc = mod.get(SalesService);
+    await svc.createCreditNote('inv-manual', {
+      correctionConceptCode: '2',
+    });
+    expect(capturedRestored).toBe(false);
   });
 });
 
@@ -1483,7 +1599,7 @@ describe('SalesService — validateCumulativeLimits', () => {
           provide: InventoryService,
           useValue: {
             consumeStock: jest.fn(),
-            restoreStock: jest.fn().mockResolvedValue(0),
+            restoreStock: jest.fn().mockResolvedValue({ totalCost: 0, restoredQuantity: 1 }),
           },
         },
         { provide: PdfGenerationService, useValue: pdfService },
@@ -1498,7 +1614,7 @@ describe('SalesService — validateCumulativeLimits', () => {
           provide: ScenarioDHandler,
           useFactory: () =>
             new ScenarioDHandler({
-              restoreStock: jest.fn().mockResolvedValue(0),
+              restoreStock: jest.fn().mockResolvedValue({ totalCost: 0, restoredQuantity: 1 }),
             } as any),
         },
         { provide: PaymentMethodsService, useValue: { findOne: jest.fn().mockResolvedValue({ code: '10' }), findByCode: jest.fn().mockResolvedValue({ code: '10' }) } },
@@ -1579,7 +1695,7 @@ describe('SalesService.searchManualBills', () => {
           provide: InventoryService,
           useValue: {
             consumeStock: jest.fn(),
-            restoreStock: jest.fn().mockResolvedValue(0),
+            restoreStock: jest.fn().mockResolvedValue({ totalCost: 0, restoredQuantity: 1 }),
           },
         },
         { provide: PdfGenerationService, useValue: {} },
