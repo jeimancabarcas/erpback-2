@@ -12,7 +12,6 @@ import { Tax } from '../settings/entities/tax.entity';
 import { InventoryBatch } from './entities/inventory-batch.entity';
 import { InvoiceItem } from '../sales/entities/invoice-item.entity';
 import { CreditNoteItem } from '../sales/entities/credit-note-item.entity';
-import { User } from '../users/entities/user.entity';
 import { CreateInventoryCategoryDto } from './dto/create-inventory-category.dto';
 import { UpdateInventoryCategoryDto } from './dto/update-inventory-category.dto';
 import { QueryCategoriesDto } from './dto/query-categories.dto';
@@ -22,6 +21,13 @@ import { QueryProductsDto } from './dto/query-products.dto';
 import { QueryMovementsDto } from './dto/query-movements.dto';
 import { PaginatedResult } from '../../common/interfaces/paginated-result.interface';
 import { buildWhere } from '../../common/helpers/query.helper';
+import { User } from '../users/entities/user.entity';
+
+export interface MovementContext {
+  referenceType: string;
+  referenceId?: string;
+  user?: User;
+}
 
 @Injectable()
 export class InventoryService {
@@ -413,13 +419,13 @@ export class InventoryService {
    * @param productId - The product to restore stock to
    * @param quantity - The total quantity to restore
    * @param manager - Optional EntityManager for transactional participation
-   * @returns The total restored cost (sum of restored qty * purchasePrice per batch)
+   * @returns The total restored cost and restored quantity
    */
   async restoreStock(
     productId: string,
     quantity: number,
     manager?: EntityManager,
-  ): Promise<number> {
+  ): Promise<{ totalCost: number; restoredQuantity: number }> {
     const productRepo = manager
       ? manager.getRepository(Product)
       : this.productRepository;
@@ -459,13 +465,17 @@ export class InventoryService {
     }
 
     const actuallyRestored = quantity - remainingToRestore;
-    product.currentStock = Number(product.currentStock) + actuallyRestored;
+
+    // Always restore the full invoice quantity to product stock, regardless of
+    // whether we could trace individual batch consumption. Batch-level restoration
+    // is for cost tracking; stock quantity restoration must always happen.
+    product.currentStock = Number(product.currentStock) + quantity;
     await productRepo.save(product);
 
     // Recalculate average price after restoring batches
     await this.recalculateAveragePrice(productId, manager);
 
-    return totalCost;
+    return { totalCost, restoredQuantity: quantity };
   }
 
   private async recalculateAveragePrice(
@@ -576,9 +586,7 @@ export class InventoryService {
 
     const returnMovements = creditNoteItems.map((item) => ({
       id: `RET-${item.id.substring(0, 8).toUpperCase()}`,
-      date: item.creditNote?.createdAt
-        ? new Date(item.creditNote.createdAt)
-        : new Date(),
+      date: item.creditNote?.createdAt,
       type: 'In' as const,
       product: item.product ? item.product.name : 'Producto Eliminado',
       quantity: item.quantity,
@@ -612,15 +620,8 @@ export class InventoryService {
     const skip = (page - 1) * limit;
     const data = movements.slice(skip, skip + limit);
 
-    // Formatear fecha para respuesta
-    const formatted = data.map((m) => ({
-      ...m,
-      date:
-        m.date instanceof Date ? m.date.toISOString().split('T')[0] : m.date,
-    }));
-
     return {
-      data: formatted,
+      data,
       meta: {
         total,
         page,

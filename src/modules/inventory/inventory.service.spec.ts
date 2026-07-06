@@ -14,6 +14,7 @@ import {
 } from '@nestjs/common';
 import { InvoiceItem } from '../sales/entities/invoice-item.entity';
 import { CreditNoteItem } from '../sales/entities/credit-note-item.entity';
+import { InventoryMovement, MovementType } from './entities/inventory-movement.entity';
 
 describe('InventoryService', () => {
   let service: InventoryService;
@@ -51,6 +52,14 @@ describe('InventoryService', () => {
     find: jest.fn(),
   };
 
+  const mockMovementRepository = {
+    create: jest.fn(),
+    save: jest.fn(),
+    find: jest.fn(),
+    findAndCount: jest.fn(),
+    count: jest.fn(),
+  };
+
   const mockEntityManager = {
     getRepository: jest.fn().mockImplementation((entity) => {
       if (entity === Product) return mockProductRepository;
@@ -75,6 +84,10 @@ describe('InventoryService', () => {
           provide: getRepositoryToken(InventoryCategory),
           useValue: mockCategoryRepository,
         },
+        {
+          provide: getRepositoryToken(InventoryMovement),
+          useValue: mockMovementRepository,
+        },
       ],
     }).compile();
 
@@ -97,9 +110,11 @@ describe('InventoryService', () => {
       if (entity === InventoryBatch) return mockBatchRepository;
       if (entity === InvoiceItem) return mockInvoiceItemRepository;
       if (entity === CreditNoteItem) return mockCreditNoteItemRepository;
+      if (entity === InventoryMovement) return mockMovementRepository;
     });
     mockBatchRepository.create.mockImplementation((dto) => dto);
     mockProductRepository.create.mockImplementation((dto) => dto);
+    mockMovementRepository.create.mockImplementation((dto) => dto);
     mockCreditNoteItemRepository.find.mockResolvedValue([]); // default: no returns
   });
 
@@ -470,6 +485,9 @@ describe('InventoryService', () => {
       expect(purchase.quantity).toBe(8);
       expect(purchase.origin).toBe('Proveedor (Compra)');
       expect(purchase.destination).toBe('Almacén Principal');
+
+      // Date debe ser un objeto Date (la DB lo entrega como timestamp, NestJS lo serializa a ISO)
+      expect(manualPos.date).toBeInstanceOf(Date);
     });
 
     it('should retrieve movements with operator email or Sistema fallback', async () => {
@@ -543,6 +561,52 @@ describe('InventoryService', () => {
   // ---------------------------------------------------------------------------
   // restoreStock
   // ---------------------------------------------------------------------------
+  describe('InventoryMovement Entity', () => {
+    it('should support MovementType enum values (In and Out)', () => {
+      expect(MovementType.IN).toBe('In');
+      expect(MovementType.OUT).toBe('Out');
+    });
+
+    it('should support creating an In movement with all fields', () => {
+      const movement = new InventoryMovement();
+      movement.productId = 'prod-uuid';
+      movement.type = MovementType.IN;
+      movement.quantity = 10;
+      movement.origin = 'Proveedor (Compra)';
+      movement.destination = 'Almacén Principal';
+      movement.referenceType = 'PURCHASE_ORDER';
+      movement.referenceId = 'po-uuid';
+      movement.metadata = { purchaseOrderId: 'po-uuid' };
+
+      expect(movement.productId).toBe('prod-uuid');
+      expect(movement.type).toBe('In');
+      expect(movement.quantity).toBe(10);
+      expect(movement.origin).toBe('Proveedor (Compra)');
+      expect(movement.destination).toBe('Almacén Principal');
+      expect(movement.referenceType).toBe('PURCHASE_ORDER');
+      expect(movement.referenceId).toBe('po-uuid');
+      expect(movement.metadata).toEqual({ purchaseOrderId: 'po-uuid' });
+      expect(movement.createdAt).toBeUndefined(); // not saved yet
+    });
+
+    it('should support creating an Out movement with userId and nullables', () => {
+      const movement = new InventoryMovement();
+      movement.productId = 'prod-uuid';
+      movement.type = MovementType.OUT;
+      movement.quantity = 5;
+      movement.origin = 'Almacén Principal';
+      movement.destination = 'Cliente Final';
+      movement.referenceType = 'SALES_INVOICE';
+      movement.userId = 'user-uuid';
+
+      expect(movement.type).toBe('Out');
+      expect(movement.userId).toBe('user-uuid');
+      // Before save, nullable columns are undefined in TypeORM
+      expect(movement.referenceId).toBeUndefined();
+      expect(movement.metadata).toBeUndefined();
+    });
+  });
+
   describe('restoreStock', () => {
     const productId = 'prod-restore-1';
 
@@ -577,7 +641,7 @@ describe('InventoryService', () => {
         return Promise.resolve(b);
       });
 
-      const totalCost = await service.restoreStock(productId, 2);
+      const { totalCost, restoredQuantity } = await service.restoreStock(productId, 2);
 
       // Batch should have 2 units restored: 7 + 2 = 9
       expect(currentBatch.remainingQuantity).toBe(9);
@@ -585,6 +649,7 @@ describe('InventoryService', () => {
       expect(product.currentStock).toBe(9);
       // Cost: 2 units * $10 = $20
       expect(totalCost).toBe(20);
+      expect(restoredQuantity).toBe(2);
     });
 
     it('should restore across multiple batches using LIFO order (most recent consumption first)', async () => {
@@ -632,7 +697,7 @@ describe('InventoryService', () => {
         return Promise.resolve(b);
       });
 
-      const totalCost = await service.restoreStock(productId, 4);
+      const { totalCost, restoredQuantity } = await service.restoreStock(productId, 4);
 
       // Batch B (newest) gets all 4 restored: 5 + 4 = 9
       expect(batchB.remainingQuantity).toBe(9);
@@ -642,6 +707,7 @@ describe('InventoryService', () => {
       expect(product.currentStock).toBe(11);
       // Cost: 4 * $12 = $48 (all from batch B at $12/unit)
       expect(totalCost).toBe(48);
+      expect(restoredQuantity).toBe(4);
     });
 
     it('should restore full consumed quantity across a single batch', async () => {
@@ -674,11 +740,12 @@ describe('InventoryService', () => {
         return Promise.resolve(b);
       });
 
-      const totalCost = await service.restoreStock(productId, 3);
+      const { totalCost, restoredQuantity } = await service.restoreStock(productId, 3);
 
       expect(currentBatch.remainingQuantity).toBe(10); // fully restored to initial
       expect(product.currentStock).toBe(10); // 7 + 3
       expect(totalCost).toBe(30); // 3 * $10
+      expect(restoredQuantity).toBe(3);
     });
 
     it('should throw NotFoundException when product does not exist', async () => {
@@ -718,7 +785,7 @@ describe('InventoryService', () => {
         return Promise.resolve(b);
       });
 
-      const totalCost = await service.restoreStock(
+      const { totalCost, restoredQuantity } = await service.restoreStock(
         productId,
         2,
         mockEntityManager as any,
@@ -730,6 +797,7 @@ describe('InventoryService', () => {
         InventoryBatch,
       );
       expect(totalCost).toBe(20);
+      expect(restoredQuantity).toBe(2);
     });
 
     it('should not exceed initialQuantity when restoring to a batch (cap enforcement)', async () => {
@@ -762,12 +830,54 @@ describe('InventoryService', () => {
         return Promise.resolve(b);
       });
 
-      // Request restore 5, but only 3 consumed — restores 3 (capped at initialQuantity)
-      const totalCost = await service.restoreStock(productId, 5);
+      // Request restore 5 — batch capped at initialQuantity (3 restored to batch),
+      // but product stock always gets the full quantity (5) since the credit note
+      // reverses the full invoice consumption regardless of batch state.
+      const { totalCost, restoredQuantity } = await service.restoreStock(productId, 5);
 
       expect(currentBatch.remainingQuantity).toBe(10); // capped at initialQuantity
-      expect(product.currentStock).toBe(10); // 7 + 3 (only 3 could be restored)
-      expect(totalCost).toBe(30); // 3 units * $10
+      expect(product.currentStock).toBe(12); // 7 + 5 (full quantity, not capped by batch)
+      expect(totalCost).toBe(30); // 3 units * $10 (batch-level cost)
+      expect(restoredQuantity).toBe(5);
+    });
+
+    it('should still restore stock quantity even when no batches have been consumed', async () => {
+      const product = {
+        id: productId,
+        currentStock: 10,
+        averagePurchasePrice: 15,
+        name: 'Test Product',
+      } as Product;
+
+      // Batch where remaining === initial (no consumption)
+      const batch = {
+        id: 'batch-no-consume',
+        productId,
+        initialQuantity: 10,
+        remainingQuantity: 10, // NOT consumed
+        purchasePrice: 10,
+        createdAt: new Date('2026-06-20T10:00:00Z'),
+      } as InventoryBatch;
+
+      mockProductRepository.findOne.mockResolvedValue(product);
+      mockBatchRepository.find.mockResolvedValue([batch]);
+      mockProductRepository.save.mockImplementation((p: any) =>
+        Promise.resolve(p),
+      );
+      mockBatchRepository.save.mockImplementation((b: any) =>
+        Promise.resolve(b),
+      );
+
+      const { totalCost, restoredQuantity } = await service.restoreStock(
+        productId,
+        5,
+      );
+
+      // Batch-cost tracking returns 0 (no consumed batches to trace)
+      expect(totalCost).toBe(0);
+      // But product stock always increases by the full credit note quantity
+      expect(restoredQuantity).toBe(5);
+      expect(product.currentStock).toBe(15); // 10 + 5
     });
   });
 });
