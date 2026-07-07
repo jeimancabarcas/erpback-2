@@ -11,7 +11,11 @@ import { Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { PurchaseOrder } from './entities/purchase-order.entity';
 import { PurchaseOrderSupportDocument } from './entities/purchase-order-support-document.entity';
+import { PurchaseOrderAdjustmentNote } from './entities/purchase-order-adjustment-note.entity';
+import { PurchaseOrderAdjustmentNoteItem } from './entities/purchase-order-adjustment-note-item.entity';
+import { PurchaseOrderAdjustmentNoteItemTax } from './entities/purchase-order-adjustment-note-item-tax.entity';
 import { CreatePurchaseOrderDto } from './dto/create-purchase-order.dto';
+import { CreatePurchaseOrderAdjustmentNoteDto } from './dto/create-purchase-order-adjustment-note.dto';
 import { UpdatePurchaseOrderDto } from './dto/update-purchase-order.dto';
 import { QueryPurchaseOrdersDto } from './dto/query-purchase-orders.dto';
 import { PaginatedResult } from '../../common/interfaces/paginated-result.interface';
@@ -20,7 +24,9 @@ import { InventoryService } from '../inventory/inventory.service';
 import type {
   IFactusInvoicingGateway,
   FactusSupportDocumentRequest,
+  FactusSupportDocumentAdjustmentNoteRequest,
 } from '../factus/interfaces/factus-invoicing-gateway.interface';
+import { PurchaseOrderAdjustmentScenarioDHandler } from './helpers/purchase-order-adjustment-scenario-d';
 import { join } from 'path';
 import { mkdirSync, writeFileSync } from 'fs';
 import { extname } from 'path';
@@ -35,7 +41,10 @@ export class PurchaseOrdersService {
 
     @InjectRepository(PurchaseOrderSupportDocument)
     private readonly supportDocumentRepository: Repository<PurchaseOrderSupportDocument>,
+    @InjectRepository(PurchaseOrderAdjustmentNote)
+    private readonly adjustmentNoteRepository: Repository<PurchaseOrderAdjustmentNote>,
     private readonly inventoryService: InventoryService,
+    private readonly scenarioDHandler: PurchaseOrderAdjustmentScenarioDHandler,
     @Inject('IFactusInvoicingGateway')
     private readonly factusGateway: IFactusInvoicingGateway,
     private readonly configService: ConfigService,
@@ -278,20 +287,36 @@ export class PurchaseOrdersService {
     const timestamp = Math.floor(Date.now() / 1000);
     const referenceCode = `DS-${order.orderNumber}-${timestamp}`;
 
-    // Calculate total including taxes (match Factus document total)
-    const total = order.items.reduce((sum, item) => {
-      const subtotal = Number(item.quantity) * Number(item.price);
+    // Compute factus items with priceBeforeTax
+    const factusItems = order.items.map((item) => {
       const taxes = item.product.taxes || [];
       const totalTaxRate = taxes.reduce(
         (rateSum, tax: any) => rateSum + Number(tax.percentage),
         0,
       );
-      const taxAmount =
+      const priceBeforeTax =
         totalTaxRate > 0
-          ? Math.round(subtotal * (totalTaxRate / 100) * 100) / 100
-          : 0;
-      return sum + subtotal + taxAmount;
-    }, 0);
+          ? Math.round((Number(item.price) / (1 + totalTaxRate / 100)) * 100) /
+            100
+          : Number(item.price);
+
+      return {
+        codeReference: item.product.sku || item.product.id,
+        name: item.product.name,
+        quantity: Number(item.quantity),
+        discountRate: 0,
+        price: priceBeforeTax,
+        unitMeasureCode: '94',
+        standardCode: '999',
+        taxes: taxes.map((tax: any) => ({
+          code: tax.code,
+          rate: Number(tax.percentage ?? 0).toFixed(2),
+        })),
+      };
+    });
+
+    // Calculate total using integer-cents arithmetic
+    const total = this.computeFactusTotal(factusItems);
 
     // Build Factus payload
     const factusPayload: FactusSupportDocumentRequest = {
@@ -320,19 +345,7 @@ export class PurchaseOrdersService {
         municipality_code: supplier.municipalityCode!,
         legal_organization_code: supplier.legalOrganizationCode!,
       },
-      items: order.items.map((item) => ({
-        codeReference: item.product.sku || item.product.id,
-        name: item.product.name,
-        quantity: Number(item.quantity),
-        discountRate: 0,
-        price: Number(item.price),
-        unitMeasureCode: '94',
-        standardCode: '999',
-        taxes: (item.product.taxes || []).map((tax: any) => ({
-          code: tax.code,
-          rate: Number(tax.percentage ?? 0).toFixed(2),
-        })),
-      })),
+      items: factusItems,
     };
 
     // Call Factus
@@ -400,6 +413,233 @@ export class PurchaseOrdersService {
     }
   }
 
+  // ── Adjustment Note methods ──
+
+  async emitAdjustmentNote(
+    id: string,
+    dto: CreatePurchaseOrderAdjustmentNoteDto,
+  ): Promise<PurchaseOrderAdjustmentNote> {
+    return this.purchaseOrderRepository.manager.transaction(async (manager) => {
+      const orderRepo = manager.getRepository(PurchaseOrder);
+      const adjNoteRepo = manager.getRepository(PurchaseOrderAdjustmentNote);
+      const adjNoteItemRepo = manager.getRepository(
+        PurchaseOrderAdjustmentNoteItem,
+      );
+
+      // Lock row first without relations
+      const locked = await orderRepo.findOne({
+        where: { id },
+        lock: { mode: 'pessimistic_write' },
+      });
+
+      if (!locked) {
+        throw new NotFoundException(
+          `Orden de compra con ID ${id} no encontrada`,
+        );
+      }
+
+      // Load full order with relations
+      const order = await orderRepo.findOne({
+        where: { id },
+        relations: [
+          'items',
+          'items.product',
+          'items.product.taxes',
+          'supplier',
+          'supportDocuments',
+          'adjustmentNotes',
+        ],
+      });
+
+      if (!order) {
+        throw new NotFoundException(
+          `Orden de compra con ID ${id} no encontrada`,
+        );
+      }
+
+      // ── Guards ──
+
+      if (order.status !== 'COMPLETED') {
+        throw new ConflictException(
+          'Solo se pueden emitir notas de ajuste para órdenes COMPLETED',
+        );
+      }
+
+      const supportDoc = order.supportDocuments?.[0];
+      if (!supportDoc) {
+        throw new BadRequestException(
+          'No existe documento soporte para esta orden',
+        );
+      }
+
+      if (!supportDoc.number) {
+        throw new BadRequestException(
+          'El documento soporte no tiene número asignado de Factus',
+        );
+      }
+
+      if (order.adjustmentNotes && order.adjustmentNotes.length > 0) {
+        throw new ConflictException(
+          'Ya existe una nota de ajuste para esta orden',
+        );
+      }
+
+      // Validate supplier fields
+      const supplier = order.supplier;
+      const missingFields: string[] = [];
+      if (!supplier.nit) missingFields.push('NIT');
+      if (!supplier.name) missingFields.push('name');
+      if (!supplier.address) missingFields.push('address');
+      if (!supplier.municipalityCode) missingFields.push('municipalityCode');
+      if (!supplier.legalOrganizationCode)
+        missingFields.push('legalOrganizationCode');
+
+      if (missingFields.length > 0) {
+        throw new BadRequestException(
+          `El proveedor no tiene los campos requeridos: ${missingFields.join(', ')}`,
+        );
+      }
+
+      // ── Route to scenario handler ──
+      const scenarioResult = await this.scenarioDHandler.execute({
+        purchaseOrder: order,
+        dto,
+        queryRunner: manager,
+        factusGateway: this.factusGateway,
+      });
+
+      // ── Build Factus payload ──
+      const referenceCode = `NA-${order.orderNumber}-${Math.floor(Date.now() / 1000)}`;
+
+      const payload: FactusSupportDocumentAdjustmentNoteRequest = {
+        referenceCode,
+        correctionConceptCode: '2',
+        supportDocumentNumber: supportDoc.number,
+        observation: dto.observation || 'Anulación total de documento soporte',
+        paymentDetails: [
+          {
+            paymentForm: '1',
+            paymentMethodCode: '10',
+            amount: this.computeFactusTotal(scenarioResult.factusItems).toFixed(
+              2,
+            ),
+          },
+        ],
+        provider: {
+          identification_document_code: '31',
+          identification: supplier.nit.split('-')[0] || supplier.nit,
+          dv: supplier.dv || undefined,
+          names: supplier.name,
+          address: supplier.address,
+          country_code: 'CO',
+          municipality_code: supplier.municipalityCode!,
+          legal_organization_code: supplier.legalOrganizationCode!,
+        },
+        items: scenarioResult.factusItems,
+      };
+
+      // ── Call Factus ──
+      let factusResponse: any;
+      try {
+        factusResponse =
+          await this.factusGateway.createSupportDocumentAdjustmentNote(payload);
+      } catch (err: any) {
+        throw new BadRequestException(
+          `Error al emitir nota de ajuste en Factus: ${err.message}`,
+        );
+      }
+
+      // ── Persist entities ──
+      const data = factusResponse.data || {};
+      const adjNote = adjNoteRepo.create({
+        referenceCode: data.referenceCode || factusResponse.referenceCode,
+        noteNumber: data.number || factusResponse.number || null,
+        cude: data.cude || null,
+        correctionConceptCode: '2',
+        amount: scenarioResult.totalAmount,
+        observation: dto.observation || null,
+        qrUrl: data.qrUrl || null,
+        publicUrl: data.publicUrl || null,
+        purchaseOrderId: order.id,
+        supportDocumentId: supportDoc.id,
+      });
+      const savedNote = await adjNoteRepo.save(adjNote);
+
+      // Save items
+      const noteItems = scenarioResult.items.map((item) =>
+        adjNoteItemRepo.create({
+          codeReference: item.codeReference,
+          name: item.name,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          subtotal: item.subtotal,
+          productId: item.productId,
+          taxAmount: item.taxAmount,
+          consumed: item.consumed,
+          adjustmentNoteId: savedNote.id,
+        }),
+      );
+      await adjNoteItemRepo.save(noteItems);
+
+      // Persist item taxes
+      for (let i = 0; i < scenarioResult.items.length; i++) {
+        const item = scenarioResult.items[i];
+        if (item.noteItemTaxes?.length) {
+          for (const t of item.noteItemTaxes) {
+            await manager.save(PurchaseOrderAdjustmentNoteItemTax, {
+              adjustmentNoteItemId: noteItems[i].id,
+              taxId: t.taxId || undefined,
+              taxCode: t.taxCode,
+              taxName: t.taxName,
+              taxRate: t.taxRate,
+              taxAmount: t.taxAmount,
+            });
+          }
+        }
+      }
+
+      // ── Set PO status to CANCELLED ──
+      order.status = 'CANCELLED';
+      await orderRepo.save(order);
+
+      // Return the saved note
+      return adjNoteRepo.findOne({
+        where: { id: savedNote.id },
+        relations: ['items'],
+      }) as Promise<PurchaseOrderAdjustmentNote>;
+    });
+  }
+
+  async downloadAdjustmentNotePdf(
+    id: string,
+    noteId: string,
+  ): Promise<{ pdfBase64Encoded: string; fileName: string }> {
+    const note = await this.adjustmentNoteRepository.findOne({
+      where: { id: noteId, purchaseOrderId: id },
+    });
+
+    if (!note) {
+      throw new NotFoundException(
+        'Nota de ajuste no encontrada para esta orden',
+      );
+    }
+
+    const noteNumber = note.noteNumber;
+    if (!noteNumber) {
+      throw new NotFoundException('La nota de ajuste no tiene número asignado');
+    }
+
+    try {
+      return await this.factusGateway.downloadSupportDocumentAdjustmentNotePdf(
+        noteNumber,
+      );
+    } catch (err: any) {
+      throw new BadRequestException(
+        `Error al descargar PDF de la nota de ajuste: ${err.message}`,
+      );
+    }
+  }
+
   async update(
     id: string,
     updateDto: UpdatePurchaseOrderDto,
@@ -457,7 +697,7 @@ export class PurchaseOrdersService {
   async findOne(id: string): Promise<PurchaseOrder> {
     const order = await this.purchaseOrderRepository.findOne({
       where: { id },
-      relations: ['supplier', 'items', 'items.product'],
+      relations: ['supplier', 'items', 'items.product', 'supportDocuments', 'adjustmentNotes'],
     });
 
     if (!order) {
@@ -485,5 +725,22 @@ export class PurchaseOrdersService {
 
     // CREATED orders have no inventory impact — just delete
     await this.purchaseOrderRepository.remove(order);
+  }
+
+  private computeFactusTotal(factusItems: any[]): number {
+    let totalCents = 0;
+    for (const fi of factusItems) {
+      const priceCents = Math.round(Number(fi.price) * 100);
+      const qtyHundredths = Math.round(Number(fi.quantity) * 100);
+      const netCents = Math.round((priceCents * qtyHundredths) / 100);
+
+      let itemCents = netCents;
+      for (const t of fi.taxes || []) {
+        const rate = Number(t.rate);
+        itemCents += Math.floor((netCents * rate) / 100);
+      }
+      totalCents += itemCents;
+    }
+    return totalCents / 100;
   }
 }
