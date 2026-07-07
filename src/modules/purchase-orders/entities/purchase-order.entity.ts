@@ -25,7 +25,7 @@ export class PurchaseOrder {
   @Column({ type: 'text', nullable: true })
   observations: string | null;
 
-  @Column({ type: 'varchar', default: 'PLACED' })
+  @Column({ type: 'varchar', default: 'CREATED' })
   status: string;
 
   @ManyToOne(() => Supplier, { onDelete: 'RESTRICT' })
@@ -34,6 +34,9 @@ export class PurchaseOrder {
 
   @Column({ name: 'supplier_id' })
   supplierId: string;
+
+  @Column({ name: 'support_file_url', type: 'varchar', nullable: true })
+  supportFileUrl: string | null;
 
   @OneToMany(() => PurchaseOrderItem, (item) => item.purchaseOrder, {
     cascade: true,

@@ -26,6 +26,15 @@ export class Supplier {
   @Column({ nullable: true })
   email: string;
 
+  @Column({ type: 'varchar', nullable: true })
+  dv: string | null;
+
+  @Column({ name: 'municipality_code', type: 'varchar', nullable: true })
+  municipalityCode: string | null;
+
+  @Column({ name: 'legal_organization_code', type: 'varchar', nullable: true })
+  legalOrganizationCode: string | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

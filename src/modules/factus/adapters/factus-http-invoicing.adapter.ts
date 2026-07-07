@@ -7,6 +7,8 @@ import {
   FactusInvoiceResponse,
   FactusCreditNoteRequest,
   FactusCreditNoteResponse,
+  FactusSupportDocumentRequest,
+  FactusSupportDocumentResponse,
 } from '../interfaces/factus-invoicing-gateway.interface';
 
 @Injectable()
@@ -73,6 +75,7 @@ export class FactusHttpInvoicingAdapter implements IFactusInvoicingGateway {
       // Fallback defaults for Sandbox V2
       if (documentType.toLowerCase() === 'nota crédito') return 390;
       if (documentType.toLowerCase() === 'factura de venta') return 389;
+      if (documentType.toLowerCase() === 'documento soporte') return 391;
       throw error;
     }
   }
@@ -83,9 +86,7 @@ export class FactusHttpInvoicingAdapter implements IFactusInvoicingGateway {
 
     try {
       this.logger.log(`Sending POST request to ${baseUrl}${endpoint}...`);
-      this.logger.debug(
-        `Payload: ${JSON.stringify(payload, null, 2)}`,
-      );
+      this.logger.debug(`Payload: ${JSON.stringify(payload, null, 2)}`);
       const response = await fetch(`${baseUrl}${endpoint}`, {
         method: 'POST',
         headers: {
@@ -297,6 +298,120 @@ export class FactusHttpInvoicingAdapter implements IFactusInvoicingGateway {
         rawResponse.data?.pdf_base_64_encoded ||
         rawResponse.pdf_base_64_encoded,
       fileName: rawResponse.data?.file_name || rawResponse.file_name,
+    };
+  }
+
+  // --- Support Document methods ---
+
+  async createSupportDocument(
+    request: FactusSupportDocumentRequest,
+  ): Promise<FactusSupportDocumentResponse> {
+    const numberingRangeId =
+      request.numberingRangeId ||
+      (await this.getActiveNumberingRangeId('Documento Soporte'));
+
+    const payload = {
+      reference_code: request.referenceCode,
+      numbering_range_id: numberingRangeId,
+      created_time: request.createdTime,
+      observation: request.observation,
+      payment_details: request.paymentDetails.map((p) => ({
+        payment_form: p.paymentForm,
+        payment_method_code: p.paymentMethodCode,
+        amount: p.amount,
+        reference_code: p.referenceCode,
+        due_date: p.dueDate,
+      })),
+      provider: {
+        identification_document_code:
+          request.provider.identification_document_code,
+        identification: request.provider.identification,
+        dv: request.provider.dv,
+        names: request.provider.names,
+        address: request.provider.address,
+        country_code: request.provider.country_code,
+        municipality_code: request.provider.municipality_code,
+        legal_organization_code: request.provider.legal_organization_code,
+      },
+      items: request.items.map((item) => ({
+        code_reference: item.codeReference,
+        name: item.name,
+        quantity: Number(item.quantity).toFixed(2),
+        discount_rate: Number(item.discountRate).toFixed(2),
+        price: Number(item.price).toFixed(2),
+        unit_measure_code: item.unitMeasureCode || '94',
+        standard_code: item.standardCode || '999',
+        note: item.note,
+        taxes: item.taxes.map((t) => ({
+          code: t.code,
+          rate: t.rate,
+          is_excluded: t.isExcluded || false,
+        })),
+      })),
+    };
+
+    const rawResponse = await this.makePostRequest(
+      '/v2/support-documents/validate',
+      payload,
+    );
+    return this.mapSupportDocumentResponse(rawResponse);
+  }
+
+  async destroySupportDocument(
+    referenceCode: string,
+  ): Promise<{ status: string; message: string }> {
+    const response = await this.makeDeleteRequest(
+      `/v1/support-documents/reference/${encodeURIComponent(referenceCode)}`,
+    );
+    return {
+      status: response.status || 'ok',
+      message: response.message || 'Documento soporte eliminado correctamente',
+    };
+  }
+
+  async downloadSupportDocumentPdf(
+    number: string,
+  ): Promise<{ pdfBase64Encoded: string; fileName: string }> {
+    const rawResponse = await this.makeGetRequest(
+      `/v2/support-documents/${number}/download-pdf`,
+    );
+    return {
+      pdfBase64Encoded:
+        rawResponse.data?.pdf_base_64_encoded ||
+        rawResponse.pdf_base_64_encoded,
+      fileName: rawResponse.data?.file_name || rawResponse.file_name,
+    };
+  }
+
+  private mapSupportDocumentResponse(res: any): FactusSupportDocumentResponse {
+    const d = res.data;
+    if (!d) return res;
+
+    return {
+      status: res.status,
+      message: res.message,
+      data: {
+        referenceCode: d.reference_code,
+        number: d.number,
+        cude: d.cude,
+        qrUrl: d.links?.qr,
+        publicUrl: d.links?.public_url,
+        isValidated: d.is_validated,
+        validatedAt: d.validated_at,
+        createdAt: d.created_at,
+        items: d.items || [],
+        taxes: d.taxes || [],
+        totals: d.totals
+          ? {
+              prepaymentAmount: Number(d.totals.prepayment_amount || 0),
+              grossAmount: Number(d.totals.gross_amount || 0),
+              taxableAmount: Number(d.totals.taxable_amount || 0),
+              taxAmount: Number(d.totals.tax_amount || 0),
+              surchargeAmount: Number(d.totals.surcharge_amount || 0),
+              total: Number(d.totals.total || 0),
+            }
+          : null,
+      },
     };
   }
 

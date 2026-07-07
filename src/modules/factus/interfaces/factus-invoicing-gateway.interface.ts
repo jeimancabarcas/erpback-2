@@ -149,9 +149,62 @@ export interface FactusCreditNoteResponse {
   data: FactusCreditNoteResponseData;
 }
 
+// Support Document types
+export interface FactusSupportDocumentEstablishment {
+  name: string;
+  address: string;
+  phone_number: string;
+  email: string;
+  municipality_code: string;
+}
+
+export interface FactusSupportDocumentProvider {
+  identification_document_code: string;
+  identification: string;
+  dv: string;
+  names: string;
+  address: string;
+  country_code: string;
+  municipality_code: string;
+  legal_organization_code: string;
+}
+
+export interface FactusSupportDocumentRequest {
+  referenceCode: string;
+  createdTime: string;
+  observation: string;
+  paymentDetails: FactusPaymentDetail[];
+  establishment?: FactusSupportDocumentEstablishment;
+  provider: FactusSupportDocumentProvider;
+  items: FactusItem[];
+  numberingRangeId?: number;
+}
+
+export interface FactusSupportDocumentResponse {
+  status: string;
+  message: string;
+  data: FactusSupportDocumentResponseData;
+}
+
+export interface FactusSupportDocumentResponseData {
+  referenceCode: string;
+  number: string;
+  cude: string;
+  qrUrl?: string;
+  publicUrl?: string;
+  isValidated: boolean;
+  validatedAt: string | null;
+  createdAt: string;
+  items: any[];
+  taxes: any[];
+  totals: FactusInvoiceResponseTotals | null;
+}
+
 export interface IFactusInvoicingGateway {
   createInvoice(invoice: FactusInvoiceRequest): Promise<FactusInvoiceResponse>;
-  destroyInvoice(referenceCode: string): Promise<{ status: string; message: string }>;
+  destroyInvoice(
+    referenceCode: string,
+  ): Promise<{ status: string; message: string }>;
   createCreditNote(
     creditNote: FactusCreditNoteRequest,
   ): Promise<FactusCreditNoteResponse>;
@@ -159,6 +212,15 @@ export interface IFactusInvoicingGateway {
     number: string,
   ): Promise<{ pdfBase64Encoded: string; fileName: string }>;
   downloadAdjustmentNotePdf(
+    number: string,
+  ): Promise<{ pdfBase64Encoded: string; fileName: string }>;
+  createSupportDocument(
+    request: FactusSupportDocumentRequest,
+  ): Promise<FactusSupportDocumentResponse>;
+  destroySupportDocument(
+    referenceCode: string,
+  ): Promise<{ status: string; message: string }>;
+  downloadSupportDocumentPdf(
     number: string,
   ): Promise<{ pdfBase64Encoded: string; fileName: string }>;
 }
