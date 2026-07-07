@@ -17,6 +17,7 @@ import { PurchaseOrdersService } from './purchase-orders.service';
 import { CreatePurchaseOrderDto } from './dto/create-purchase-order.dto';
 import { UpdatePurchaseOrderDto } from './dto/update-purchase-order.dto';
 import { QueryPurchaseOrdersDto } from './dto/query-purchase-orders.dto';
+import { CreatePurchaseOrderAdjustmentNoteDto } from './dto/create-purchase-order-adjustment-note.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { FileValidationPipe } from './pipes/file-validation.pipe';
 
@@ -75,5 +76,21 @@ export class PurchaseOrdersController {
   @Get(':id/support-document/pdf')
   downloadSupportDocumentPdf(@Param('id', ParseUUIDPipe) id: string) {
     return this.purchaseOrdersService.downloadSupportDocumentPdf(id);
+  }
+
+  @Post(':id/adjustment-note')
+  emitAdjustmentNote(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CreatePurchaseOrderAdjustmentNoteDto,
+  ) {
+    return this.purchaseOrdersService.emitAdjustmentNote(id, dto);
+  }
+
+  @Get(':id/adjustment-note/:noteId/pdf')
+  downloadAdjustmentNotePdf(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('noteId', ParseUUIDPipe) noteId: string,
+  ) {
+    return this.purchaseOrdersService.downloadAdjustmentNotePdf(id, noteId);
   }
 }

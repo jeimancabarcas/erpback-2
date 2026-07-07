@@ -13,6 +13,9 @@ import { Supplier } from './modules/suppliers/entities/supplier.entity';
 import { PurchaseOrder } from './modules/purchase-orders/entities/purchase-order.entity';
 import { PurchaseOrderItem } from './modules/purchase-orders/entities/purchase-order-item.entity';
 import { PurchaseOrderSupportDocument } from './modules/purchase-orders/entities/purchase-order-support-document.entity';
+import { PurchaseOrderAdjustmentNote } from './modules/purchase-orders/entities/purchase-order-adjustment-note.entity';
+import { PurchaseOrderAdjustmentNoteItem } from './modules/purchase-orders/entities/purchase-order-adjustment-note-item.entity';
+import { PurchaseOrderAdjustmentNoteItemTax } from './modules/purchase-orders/entities/purchase-order-adjustment-note-item-tax.entity';
 import { InventoryBatch } from './modules/inventory/entities/inventory-batch.entity';
 import { InventoryMovement } from './modules/inventory/entities/inventory-movement.entity';
 import { CustomersModule } from './modules/customers/customers.module';
@@ -71,6 +74,9 @@ import { PaymentType } from './modules/settings/entities/payment-type.entity';
           PaymentMethod,
           PaymentType,
           PurchaseOrderSupportDocument,
+          PurchaseOrderAdjustmentNote,
+          PurchaseOrderAdjustmentNoteItem,
+          PurchaseOrderAdjustmentNoteItemTax,
         ],
         synchronize: true, // Only for development
       }),

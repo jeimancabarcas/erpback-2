@@ -202,6 +202,41 @@ export interface FactusSupportDocumentResponseData {
   errors?: string[];
 }
 
+export interface FactusSupportDocumentAdjustmentNoteRequest {
+  referenceCode: string;
+  correctionConceptCode: string;
+  supportDocumentNumber: string;
+  numberingRangeId?: number;
+  observation?: string;
+  paymentDetails: FactusPaymentDetail[];
+  provider?: FactusSupportDocumentProvider;
+  items: FactusItem[];
+}
+
+export interface FactusSupportDocumentAdjustmentNoteResponseData {
+  referenceCode: string;
+  number: string;
+  cude: string;
+  cuds?: string;
+  qrUrl?: string;
+  publicUrl?: string;
+  isValidated: boolean;
+  validatedAt: string | null;
+  createdAt: string;
+  numberingRange: FactusNumberingRange | null;
+  items: any[];
+  taxes: any[];
+  totals: FactusInvoiceResponseTotals | null;
+  errors?: string[];
+  links: { qr?: string; publicUrl?: string };
+}
+
+export interface FactusSupportDocumentAdjustmentNoteResponse {
+  status: string;
+  message: string;
+  data: FactusSupportDocumentAdjustmentNoteResponseData;
+}
+
 export interface IFactusInvoicingGateway {
   createInvoice(invoice: FactusInvoiceRequest): Promise<FactusInvoiceResponse>;
   destroyInvoice(
@@ -223,6 +258,15 @@ export interface IFactusInvoicingGateway {
     referenceCode: string,
   ): Promise<{ status: string; message: string }>;
   downloadSupportDocumentPdf(
+    number: string,
+  ): Promise<{ pdfBase64Encoded: string; fileName: string }>;
+  createSupportDocumentAdjustmentNote(
+    request: FactusSupportDocumentAdjustmentNoteRequest,
+  ): Promise<FactusSupportDocumentAdjustmentNoteResponse>;
+  destroySupportDocumentAdjustmentNote(
+    referenceCode: string,
+  ): Promise<{ status: string; message: string }>;
+  downloadSupportDocumentAdjustmentNotePdf(
     number: string,
   ): Promise<{ pdfBase64Encoded: string; fileName: string }>;
 }

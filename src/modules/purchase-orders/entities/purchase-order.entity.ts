@@ -10,6 +10,8 @@ import {
 } from 'typeorm';
 import { Supplier } from '../../suppliers/entities/supplier.entity';
 import { PurchaseOrderItem } from './purchase-order-item.entity';
+import { PurchaseOrderSupportDocument } from './purchase-order-support-document.entity';
+import { PurchaseOrderAdjustmentNote } from './purchase-order-adjustment-note.entity';
 
 @Entity('purchase_orders')
 export class PurchaseOrder {
@@ -42,6 +44,12 @@ export class PurchaseOrder {
     cascade: true,
   })
   items: PurchaseOrderItem[];
+
+  @OneToMany(() => PurchaseOrderSupportDocument, (doc) => doc.purchaseOrder)
+  supportDocuments: PurchaseOrderSupportDocument[];
+
+  @OneToMany(() => PurchaseOrderAdjustmentNote, (note) => note.purchaseOrder)
+  adjustmentNotes: PurchaseOrderAdjustmentNote[];
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
