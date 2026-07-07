@@ -85,9 +85,7 @@ describe('PaymentMethodsService', () => {
     it('should throw NotFoundException when code does not exist', async () => {
       mockRepository.findOne.mockResolvedValue(null);
 
-      await expect(service.findByCode('99')).rejects.toThrow(
-        NotFoundException,
-      );
+      await expect(service.findByCode('99')).rejects.toThrow(NotFoundException);
     });
   });
 });

@@ -1,8 +1,6 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class MakeInvoiceElectronicEmissionInvoiceIdNullable1700000000004
-  implements MigrationInterface
-{
+export class MakeInvoiceElectronicEmissionInvoiceIdNullable1700000000004 implements MigrationInterface {
   name = 'MakeInvoiceElectronicEmissionInvoiceIdNullable1700000000004';
 
   public async up(queryRunner: QueryRunner): Promise<void> {

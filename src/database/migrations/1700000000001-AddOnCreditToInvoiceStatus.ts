@@ -1,8 +1,6 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class AddOnCreditToInvoiceStatus1700000000001
-  implements MigrationInterface
-{
+export class AddOnCreditToInvoiceStatus1700000000001 implements MigrationInterface {
   name = 'AddOnCreditToInvoiceStatus1700000000001';
 
   public async up(queryRunner: QueryRunner): Promise<void> {

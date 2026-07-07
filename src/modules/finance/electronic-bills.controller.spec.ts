@@ -33,7 +33,9 @@ describe('ElectronicBillsController', () => {
       .useValue({ canActivate: () => true })
       .compile();
 
-    controller = module.get<ElectronicBillsController>(ElectronicBillsController);
+    controller = module.get<ElectronicBillsController>(
+      ElectronicBillsController,
+    );
   });
 
   describe('POST /finance/electronic-bills', () => {
@@ -118,7 +120,10 @@ describe('ElectronicBillsController', () => {
     });
 
     it('should have JwtAuthGuard applied at controller level', () => {
-      const guards = Reflect.getMetadata('__guards__', ElectronicBillsController);
+      const guards = Reflect.getMetadata(
+        '__guards__',
+        ElectronicBillsController,
+      );
       expect(guards).toBeDefined();
       expect(guards[0]).toBe(JwtAuthGuard);
     });
@@ -131,8 +136,17 @@ describe('ElectronicBillsController', () => {
         referenceCode: 'NC-REF-123',
         correctionConceptCode: '2',
         observation: 'Test',
-        paymentDetails: [{ paymentForm: '1', paymentMethodCode: '10', amount: 100000 }],
-        items: [{ codeReference: 'SKU-001', name: 'Product A', quantity: 2, price: 50000 }],
+        paymentDetails: [
+          { paymentForm: '1', paymentMethodCode: '10', amount: 100000 },
+        ],
+        items: [
+          {
+            codeReference: 'SKU-001',
+            name: 'Product A',
+            quantity: 2,
+            price: 50000,
+          },
+        ],
       };
 
       mockService.createCreditNote.mockResolvedValue({
@@ -152,13 +166,17 @@ describe('ElectronicBillsController', () => {
         billNumber: 'SETP990001',
         referenceCode: 'NC-REF-456',
         correctionConceptCode: '2',
-        paymentDetails: [{ paymentForm: '1', paymentMethodCode: '10', amount: 50000 }],
+        paymentDetails: [
+          { paymentForm: '1', paymentMethodCode: '10', amount: 50000 },
+        ],
         items: [{ codeReference: 'SKU', name: 'P', quantity: 1, price: 100 }],
       };
 
       mockService.createCreditNote.mockRejectedValue(new Error('Factus error'));
 
-      await expect(controller.createCreditNote(dto)).rejects.toThrow('Factus error');
+      await expect(controller.createCreditNote(dto)).rejects.toThrow(
+        'Factus error',
+      );
     });
   });
 });

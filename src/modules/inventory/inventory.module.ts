@@ -9,7 +9,12 @@ import { InventoryController } from './inventory.controller';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([InventoryCategory, Product, InventoryBatch, InventoryMovement]),
+    TypeOrmModule.forFeature([
+      InventoryCategory,
+      Product,
+      InventoryBatch,
+      InventoryMovement,
+    ]),
   ],
   controllers: [InventoryController],
   providers: [InventoryService],

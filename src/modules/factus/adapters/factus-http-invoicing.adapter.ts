@@ -354,6 +354,9 @@ export class FactusHttpInvoicingAdapter implements IFactusInvoicingGateway {
       '/v2/support-documents/validate',
       payload,
     );
+    this.logger.log(
+      `Support document response: ${JSON.stringify(rawResponse)}`,
+    );
     return this.mapSupportDocumentResponse(rawResponse);
   }
 
@@ -393,9 +396,10 @@ export class FactusHttpInvoicingAdapter implements IFactusInvoicingGateway {
       data: {
         referenceCode: d.reference_code,
         number: d.number,
-        cude: d.cude,
-        qrUrl: d.links?.qr,
-        publicUrl: d.links?.public_url,
+        cude: d.cuds || d.cude || null,
+        cuds: d.cuds || null,
+        qrUrl: d.links?.qr || null,
+        publicUrl: d.links?.public_url || null,
         isValidated: d.is_validated,
         validatedAt: d.validated_at,
         createdAt: d.created_at,
@@ -411,6 +415,7 @@ export class FactusHttpInvoicingAdapter implements IFactusInvoicingGateway {
               total: Number(d.totals.total || 0),
             }
           : null,
+        errors: d.errors || [],
       },
     };
   }

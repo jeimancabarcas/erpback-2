@@ -108,9 +108,9 @@ describe('CustomersController — Receipt Endpoints', () => {
         'cust-1',
         'pay-1',
       );
-      expect(mockPdfGenerationService.generatePaymentReceiptPdf).toHaveBeenCalledWith(
-        mockDto,
-      );
+      expect(
+        mockPdfGenerationService.generatePaymentReceiptPdf,
+      ).toHaveBeenCalledWith(mockDto);
       expect(result).toEqual({ pdf: 'base64pdfstring' });
     });
   });

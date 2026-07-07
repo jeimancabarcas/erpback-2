@@ -1,8 +1,6 @@
 import { MigrationInterface, QueryRunner, Table, TableIndex } from 'typeorm';
 
-export class CreateInventoryMovementsTable1700000000005
-  implements MigrationInterface
-{
+export class CreateInventoryMovementsTable1700000000005 implements MigrationInterface {
   name = 'CreateInventoryMovementsTable1700000000005';
 
   public async up(queryRunner: QueryRunner): Promise<void> {

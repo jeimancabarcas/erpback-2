@@ -1,7 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { CustomersService } from './customers.service';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { Customer, CustomerStatus, CreditStatus } from './entities/customer.entity';
+import {
+  Customer,
+  CustomerStatus,
+  CreditStatus,
+} from './entities/customer.entity';
 import { Invoice } from '../sales/entities/invoice.entity';
 import { ILike } from 'typeorm';
 import { QueryCustomersDto } from './dto/query-customers.dto';
@@ -109,14 +113,19 @@ describe('CustomersService', () => {
 
   describe('getStats with credit fields', () => {
     it('should include creditLimit, currentBalance, and creditStatus in stats response', async () => {
-      const customer = makeCustomer({ creditLimit: 5000000, currentBalance: 1000000 });
+      const customer = makeCustomer({
+        creditLimit: 5000000,
+        currentBalance: 1000000,
+      });
       mockCustomerRepository.findOne.mockResolvedValue(customer);
       mockInvoiceRepository.createQueryBuilder.mockReturnValue({
         select: jest.fn().mockReturnThis(),
         addSelect: jest.fn().mockReturnThis(),
         where: jest.fn().mockReturnThis(),
         andWhere: jest.fn().mockReturnThis(),
-        getRawOne: jest.fn().mockResolvedValue({ invoiceCount: '2', totalInvoiced: '1500000' }),
+        getRawOne: jest
+          .fn()
+          .mockResolvedValue({ invoiceCount: '2', totalInvoiced: '1500000' }),
       });
 
       const result = await service.getStats('cust-1');
@@ -139,7 +148,9 @@ describe('CustomersService', () => {
         addSelect: jest.fn().mockReturnThis(),
         where: jest.fn().mockReturnThis(),
         andWhere: jest.fn().mockReturnThis(),
-        getRawOne: jest.fn().mockResolvedValue({ invoiceCount: '0', totalInvoiced: '0' }),
+        getRawOne: jest
+          .fn()
+          .mockResolvedValue({ invoiceCount: '0', totalInvoiced: '0' }),
       });
 
       const result = await service.getStats('cust-1');

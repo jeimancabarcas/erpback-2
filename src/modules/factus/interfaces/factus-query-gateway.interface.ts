@@ -75,8 +75,12 @@ export interface PaginatedFactusResponse<T> {
 // ---------------------------------------------------------------------------
 
 export interface IFactusQueryGateway {
-  listBills(filters: BillQueryFilters): Promise<PaginatedFactusResponse<FactusBill>>;
-  listCreditNotes(filters: CreditNoteQueryFilters): Promise<PaginatedFactusResponse<FactusCreditNote>>;
+  listBills(
+    filters: BillQueryFilters,
+  ): Promise<PaginatedFactusResponse<FactusBill>>;
+  listCreditNotes(
+    filters: CreditNoteQueryFilters,
+  ): Promise<PaginatedFactusResponse<FactusCreditNote>>;
 }
 
 // Injection token

@@ -20,6 +20,10 @@ import { FactusHttpQueryAdapter } from './adapters/factus-http-query.adapter';
       useClass: FactusHttpQueryAdapter,
     },
   ],
-  exports: ['IFactusAuthGateway', 'IFactusInvoicingGateway', 'IFactusQueryGateway'],
+  exports: [
+    'IFactusAuthGateway',
+    'IFactusInvoicingGateway',
+    'IFactusQueryGateway',
+  ],
 })
 export class FactusModule {}

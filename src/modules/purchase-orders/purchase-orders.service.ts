@@ -262,23 +262,36 @@ export class PurchaseOrdersService {
     const supplier = order.supplier;
     const missingFields: string[] = [];
     if (!supplier.nit) missingFields.push('NIT');
-    if (!supplier.dv) missingFields.push('dv');
     if (!supplier.name) missingFields.push('name');
     if (!supplier.address) missingFields.push('address');
     if (!supplier.municipalityCode) missingFields.push('municipalityCode');
     if (!supplier.legalOrganizationCode)
       missingFields.push('legalOrganizationCode');
 
+    if (missingFields.length > 0) {
+      throw new BadRequestException(
+        `El proveedor no tiene los campos requeridos para emitir documento soporte: ${missingFields.join(', ')}`,
+      );
+    }
 
     // Generate reference code: DS-{orderNumber}-{timestamp}
     const timestamp = Math.floor(Date.now() / 1000);
     const referenceCode = `DS-${order.orderNumber}-${timestamp}`;
 
-    // Calculate total
-    const total = order.items.reduce(
-      (sum, item) => sum + Number(item.quantity) * Number(item.price),
-      0,
-    );
+    // Calculate total including taxes (match Factus document total)
+    const total = order.items.reduce((sum, item) => {
+      const subtotal = Number(item.quantity) * Number(item.price);
+      const taxes = item.product.taxes || [];
+      const totalTaxRate = taxes.reduce(
+        (rateSum, tax: any) => rateSum + Number(tax.percentage),
+        0,
+      );
+      const taxAmount =
+        totalTaxRate > 0
+          ? Math.round(subtotal * (totalTaxRate / 100) * 100) / 100
+          : 0;
+      return sum + subtotal + taxAmount;
+    }, 0);
 
     // Build Factus payload
     const factusPayload: FactusSupportDocumentRequest = {
@@ -300,12 +313,12 @@ export class PurchaseOrdersService {
       provider: {
         identification_document_code: '31', // NIT
         identification: supplier.nit.split('-')[0] || supplier.nit,
-        dv: supplier.dv ?? '',
+        dv: supplier.dv || undefined,
         names: supplier.name,
         address: supplier.address,
         country_code: 'CO',
-        municipality_code: supplier.municipalityCode ?? '',
-        legal_organization_code: supplier.legalOrganizationCode ?? '',
+        municipality_code: supplier.municipalityCode!,
+        legal_organization_code: supplier.legalOrganizationCode!,
       },
       items: order.items.map((item) => ({
         codeReference: item.product.sku || item.product.id,
@@ -317,7 +330,7 @@ export class PurchaseOrdersService {
         standardCode: '999',
         taxes: (item.product.taxes || []).map((tax: any) => ({
           code: tax.code,
-          rate: tax.rate,
+          rate: Number(tax.percentage ?? 0).toFixed(2),
         })),
       })),
     };
@@ -334,13 +347,24 @@ export class PurchaseOrdersService {
     }
 
     // Save support document
+    const data = factusResponse.data || {};
     const supportDoc = this.supportDocumentRepository.create({
-      referenceCode:
-        factusResponse.data?.referenceCode || factusResponse.referenceCode,
-      number: factusResponse.data?.number || factusResponse.number || null,
-      cude: factusResponse.data?.cude || null,
-      qrUrl: factusResponse.data?.qrUrl || null,
-      publicUrl: factusResponse.data?.publicUrl || null,
+      referenceCode: data.referenceCode || factusResponse.referenceCode,
+      number: data.number || factusResponse.number || null,
+      cude: data.cude || data.cuds || null,
+      qrUrl: data.qrUrl || null,
+      publicUrl: data.publicUrl || null,
+      validatedAt: data.validatedAt || null,
+      isValidated: data.isValidated ?? false,
+      errors: data.errors || null,
+      totals: data.totals
+        ? {
+            grossAmount: String(data.totals.grossAmount ?? ''),
+            taxableAmount: String(data.totals.taxableAmount ?? ''),
+            taxAmount: String(data.totals.taxAmount ?? ''),
+            total: String(data.totals.total ?? ''),
+          }
+        : null,
       purchaseOrderId: order.id,
     });
 

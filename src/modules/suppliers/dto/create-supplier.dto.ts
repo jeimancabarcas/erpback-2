@@ -24,6 +24,20 @@ export class CreateSupplierDto {
   @IsNotEmpty({ message: 'El teléfono es obligatorio' })
   phone: string;
 
+  @IsString({ message: 'El DV debe ser una cadena de texto' })
+  @IsOptional()
+  dv?: string;
+
+  @IsString({ message: 'El código de municipio debe ser una cadena de texto' })
+  @IsOptional()
+  municipalityCode?: string;
+
+  @IsString({
+    message: 'El código de organización legal debe ser una cadena de texto',
+  })
+  @IsOptional()
+  legalOrganizationCode?: string;
+
   @IsEmail({}, { message: 'El correo electrónico no es válido' })
   @IsOptional()
   email?: string;

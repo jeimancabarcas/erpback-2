@@ -36,7 +36,9 @@ export class ElectronicBillsService {
     private readonly factusGateway: IFactusInvoicingGateway,
   ) {}
 
-  async create(dto: CreateElectronicBillDto): Promise<ElectronicBillResponseDto> {
+  async create(
+    dto: CreateElectronicBillDto,
+  ): Promise<ElectronicBillResponseDto> {
     // 1. Build Factus payload from either manual invoice or DTO
     const referenceCode = `FAC-REF-${Date.now()}`;
     const factusCustomer: FactusCustomer = {
@@ -74,8 +76,12 @@ export class ElectronicBillsService {
       const manualInvoice = await this.invoiceRepository.findOne({
         where: { id: dto.manualInvoiceId },
         relations: [
-          'customer', 'items', 'items.product', 'items.product.taxes',
-          'paymentMethod', 'paymentType',
+          'customer',
+          'items',
+          'items.product',
+          'items.product.taxes',
+          'paymentMethod',
+          'paymentType',
         ],
       });
 
@@ -86,7 +92,9 @@ export class ElectronicBillsService {
           0,
         );
         const invoiceTotal = (manualInvoice.items ?? []).reduce(
-          (sum, item) => sum + Number(item.quantity) * Number(item.product?.sellingPrice || 0),
+          (sum, item) =>
+            sum +
+            Number(item.quantity) * Number(item.product?.sellingPrice || 0),
           0,
         );
 
@@ -108,7 +116,13 @@ export class ElectronicBillsService {
       // ---------------------------------------------------------------
       const manualInvoice = await this.invoiceRepository.findOne({
         where: { id: linkedInvoiceId },
-        relations: ['items', 'items.product', 'items.product.taxes', 'paymentMethod', 'paymentType'],
+        relations: [
+          'items',
+          'items.product',
+          'items.product.taxes',
+          'paymentMethod',
+          'paymentType',
+        ],
       });
 
       if (!manualInvoice) {
@@ -120,8 +134,12 @@ export class ElectronicBillsService {
       factusItems = manualInvoice.items.map((item) => {
         const rawUnitPrice = Number(item.product?.sellingPrice || 0);
         const sellTaxes = (item.product?.taxes ?? []).filter((t) => t.isSell);
-        const totalRate = sellTaxes.reduce((sum, t) => sum + Number(t.percentage), 0);
-        const priceBeforeTax = Math.round(rawUnitPrice / (1 + totalRate / 100) * 100) / 100;
+        const totalRate = sellTaxes.reduce(
+          (sum, t) => sum + Number(t.percentage),
+          0,
+        );
+        const priceBeforeTax =
+          Math.round((rawUnitPrice / (1 + totalRate / 100)) * 100) / 100;
         const productTaxes = sellTaxes.map((t) => ({
           code: t.code,
           rate: Number(t.percentage).toFixed(2),
@@ -145,7 +163,9 @@ export class ElectronicBillsService {
         const netAmount = fi.price * fi.quantity;
         const taxAmount = (fi.taxes ?? []).reduce((t, tax) => {
           if (tax.isExcluded) return t;
-          return t + Math.round(netAmount * Number(tax.rate) / 100 * 100) / 100;
+          return (
+            t + Math.round(((netAmount * Number(tax.rate)) / 100) * 100) / 100
+          );
         }, 0);
         return sum + Math.round((netAmount + taxAmount) * 100) / 100;
       }, 0);
@@ -158,7 +178,11 @@ export class ElectronicBillsService {
       // ---------------------------------------------------------------
       factusItems = await Promise.all(
         dto.items.map(async (item) => {
-          let productTaxes: { code: string; rate: string; isExcluded: boolean }[] = [];
+          let productTaxes: {
+            code: string;
+            rate: string;
+            isExcluded: boolean;
+          }[] = [];
           let priceBeforeTax = item.price;
 
           if (item.productId) {
@@ -168,8 +192,12 @@ export class ElectronicBillsService {
             });
             if (product) {
               const sellTaxes = (product.taxes ?? []).filter((t) => t.isSell);
-              const totalRate = sellTaxes.reduce((sum, t) => sum + Number(t.percentage), 0);
-              priceBeforeTax = Math.round(item.price / (1 + totalRate / 100) * 100) / 100;
+              const totalRate = sellTaxes.reduce(
+                (sum, t) => sum + Number(t.percentage),
+                0,
+              );
+              priceBeforeTax =
+                Math.round((item.price / (1 + totalRate / 100)) * 100) / 100;
               productTaxes = sellTaxes.map((t) => ({
                 code: t.code,
                 rate: Number(t.percentage).toFixed(2),
@@ -203,7 +231,9 @@ export class ElectronicBillsService {
           const netAmount = fi.price * fi.quantity;
           const taxAmount = (fi.taxes ?? []).reduce((t, tax) => {
             if (tax.isExcluded) return t;
-            return t + Math.round(netAmount * Number(tax.rate) / 100 * 100) / 100;
+            return (
+              t + Math.round(((netAmount * Number(tax.rate)) / 100) * 100) / 100
+            );
           }, 0);
           return sum + Math.round((netAmount + taxAmount) * 100) / 100;
         }, 0);
@@ -228,11 +258,10 @@ export class ElectronicBillsService {
 
       // 4. Save emission record ONLY after Factus confirms success
       const emission = this.emissionRepository.create({
-        invoice: linkedInvoiceId ? ({ id: linkedInvoiceId } as any) : null,
+        invoice: linkedInvoiceId ? { id: linkedInvoiceId } : undefined,
         invoiceId: linkedInvoiceId,
         number: factusResponse.data.number,
-        cude:
-          factusResponse.data.cude || factusResponse.data.cufe || undefined,
+        cude: factusResponse.data.cude || factusResponse.data.cufe || undefined,
         qrUrl: factusResponse.data.qrUrl || undefined,
         publicUrl: factusResponse.data.publicUrl || undefined,
         isValidated: factusResponse.data.isValidated ?? false,
@@ -241,8 +270,7 @@ export class ElectronicBillsService {
           const d = new Date(factusResponse.data.validatedAt);
           return isNaN(d.getTime()) ? undefined : d;
         })(),
-        numberingRange:
-          factusResponse.data.numberingRange || undefined,
+        numberingRange: factusResponse.data.numberingRange || undefined,
         items: factusResponse.data.items || undefined,
         taxes: factusResponse.data.taxes || undefined,
         totals: factusResponse.data.totals || undefined,
@@ -250,13 +278,16 @@ export class ElectronicBillsService {
         status: 'emitted',
       });
       const savedEmission = await this.emissionRepository.save(emission);
+      const result = Array.isArray(savedEmission)
+        ? savedEmission[0]
+        : savedEmission;
 
       return {
-        id: savedEmission.id,
-        number: savedEmission.number,
-        cufe: savedEmission.cude,
-        qrUrl: savedEmission.qrUrl,
-        publicUrl: savedEmission.publicUrl,
+        id: result.id,
+        number: result.number,
+        cufe: result.cude,
+        qrUrl: result.qrUrl,
+        publicUrl: result.publicUrl,
         status: 'emitted',
         warning,
       };
@@ -276,9 +307,7 @@ export class ElectronicBillsService {
    * builds the Factus payload, and calls factusGateway.createCreditNote().
    * No local DB save — the response is returned directly.
    */
-  async createCreditNote(
-    dto: CreateElectronicCreditNoteDto,
-  ): Promise<any> {
+  async createCreditNote(dto: CreateElectronicCreditNoteDto): Promise<any> {
     // 1. Resolve emission by billNumber
     const emission = await this.emissionRepository.findOne({
       where: { number: dto.billNumber },

@@ -17,7 +17,9 @@ export type ProportionalFactor = {
 };
 
 /** Helper: compute the effective per-unit price (from product.sellingPrice) */
-export function getEffectiveUnitPrice(invoiceItem: { product?: { sellingPrice?: number } }): number {
+export function getEffectiveUnitPrice(invoiceItem: {
+  product?: { sellingPrice?: number };
+}): number {
   return Number(invoiceItem.product?.sellingPrice || 0);
 }
 

@@ -9,11 +9,7 @@ import { SalesModule } from '../sales/sales.module';
 import { Product } from '../inventory/entities/product.entity';
 
 @Module({
-  imports: [
-    TypeOrmModule.forFeature([Product]),
-    FactusModule,
-    SalesModule,
-  ],
+  imports: [TypeOrmModule.forFeature([Product]), FactusModule, SalesModule],
   controllers: [FinanceController, ElectronicBillsController],
   providers: [FinanceService, ElectronicBillsService],
 })

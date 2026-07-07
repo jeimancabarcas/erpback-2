@@ -30,15 +30,15 @@ export class CustomersCreditService {
     private readonly dataSource: DataSource,
   ) {}
 
-  async getCreditPortfolio(customerId: string): Promise<CreditPortfolioResponseDto> {
+  async getCreditPortfolio(
+    customerId: string,
+  ): Promise<CreditPortfolioResponseDto> {
     const customer = await this.customerRepository.findOne({
       where: { id: customerId },
     });
 
     if (!customer) {
-      throw new NotFoundException(
-        `Cliente con ID ${customerId} no encontrado`,
-      );
+      throw new NotFoundException(`Cliente con ID ${customerId} no encontrado`);
     }
 
     const creditLimit = customer.creditLimit
@@ -76,9 +76,7 @@ export class CustomersCreditService {
     });
 
     if (!customer) {
-      throw new NotFoundException(
-        `Cliente con ID ${customerId} no encontrado`,
-      );
+      throw new NotFoundException(`Cliente con ID ${customerId} no encontrado`);
     }
 
     customer.creditLimit = dto.creditLimit;
@@ -102,17 +100,13 @@ export class CustomersCreditService {
     });
 
     if (!customer) {
-      throw new NotFoundException(
-        `Cliente con ID ${customerId} no encontrado`,
-      );
+      throw new NotFoundException(`Cliente con ID ${customerId} no encontrado`);
     }
 
     const currentBalance = Number(customer.currentBalance);
 
     if (dto.amount > currentBalance) {
-      throw new BadRequestException(
-        'El pago excede el saldo pendiente',
-      );
+      throw new BadRequestException('El pago excede el saldo pendiente');
     }
 
     const queryRunner = this.dataSource.createQueryRunner();
@@ -161,7 +155,8 @@ export class CustomersCreditService {
       let invoiceStatus = invoice?.status ?? InvoiceStatus.ON_CREDIT;
 
       const invoiceTotal = (invoice?.items ?? []).reduce(
-        (acc, item) => acc + Number(item.quantity) * Number(item.product?.sellingPrice || 0),
+        (acc, item) =>
+          acc + Number(item.quantity) * Number(item.product?.sellingPrice || 0),
         0,
       );
       if (invoice && totalPayments >= invoiceTotal) {
@@ -241,9 +236,7 @@ export class CustomersCreditService {
     });
 
     if (!customer) {
-      throw new NotFoundException(
-        `Cliente con ID ${customerId} no encontrado`,
-      );
+      throw new NotFoundException(`Cliente con ID ${customerId} no encontrado`);
     }
 
     const paymentRecord = await this.paymentRecordRepository.findOne({
@@ -258,9 +251,7 @@ export class CustomersCreditService {
     });
 
     if (!paymentRecord) {
-      throw new NotFoundException(
-        `Pago con ID ${paymentId} no encontrado`,
-      );
+      throw new NotFoundException(`Pago con ID ${paymentId} no encontrado`);
     }
 
     const invoice = paymentRecord.invoice;

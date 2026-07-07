@@ -74,7 +74,7 @@ describe('Finance Endpoints (e2e)', () => {
         ok: true,
         json: async () => ({ access_token: 'mock-token' }),
       };
-    }) as jest.Mock;
+    });
 
     global.fetch = fetchMock;
 
@@ -244,7 +244,7 @@ describe('Finance Endpoints (e2e)', () => {
           };
         }
         return originalFetch(url);
-      }) as jest.Mock;
+      });
 
       const errorModule: TestingModule = await Test.createTestingModule({
         imports: [AppModule],

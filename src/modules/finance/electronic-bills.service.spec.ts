@@ -401,9 +401,7 @@ describe('ElectronicBillsService', () => {
         id: 'prod-1',
         sku: 'SKU-001',
         name: 'Product A',
-        taxes: [
-          { id: 'tax-1', code: '01', percentage: 19.0, isSell: true },
-        ],
+        taxes: [{ id: 'tax-1', code: '01', percentage: 19.0, isSell: true }],
       });
       factusGateway.createInvoice.mockResolvedValue({
         status: 'OK',
@@ -428,9 +426,7 @@ describe('ElectronicBillsService', () => {
             expect.objectContaining({
               codeReference: 'SKU-001',
               price: 100000, // 119000 / 1.19
-              taxes: [
-                { code: '01', rate: '19.00', isExcluded: false },
-              ],
+              taxes: [{ code: '01', rate: '19.00', isExcluded: false }],
             }),
           ]),
         }),
@@ -479,9 +475,7 @@ describe('ElectronicBillsService', () => {
 
       await service.create({
         customer: { identification: '123', names: 'Test' },
-        items: [
-          { codeReference: 'SKU', name: 'P', quantity: 1, price: 50000 },
-        ],
+        items: [{ codeReference: 'SKU', name: 'P', quantity: 1, price: 50000 }],
       });
 
       expect(factusGateway.createInvoice).toHaveBeenCalledWith(
@@ -527,7 +521,12 @@ describe('ElectronicBillsService', () => {
       manualInvoiceId: 'inv-manual-tax',
       customer: { identification: '123456789', names: 'Test' },
       items: [
-        { codeReference: 'SKU-001', name: 'Product A', quantity: 2, price: 119000 },
+        {
+          codeReference: 'SKU-001',
+          name: 'Product A',
+          quantity: 2,
+          price: 119000,
+        },
       ],
     };
 
@@ -550,9 +549,7 @@ describe('ElectronicBillsService', () => {
             expect.objectContaining({
               codeReference: 'SKU-001',
               price: 100000, // 119000 / 1.19
-              taxes: [
-                { code: '01', rate: '19.00', isExcluded: false },
-              ],
+              taxes: [{ code: '01', rate: '19.00', isExcluded: false }],
             }),
           ]),
         }),
@@ -562,16 +559,18 @@ describe('ElectronicBillsService', () => {
     it('includes all taxes for multi-tax product from linked invoice', async () => {
       invoiceRepo.findOne.mockResolvedValue({
         ...manualInvoiceWithTaxes,
-        items: [{
-          ...manualInvoiceWithTaxes.items[0],
-          product: {
-            ...manualInvoiceWithTaxes.items[0].product,
-            taxes: [
-              { id: 'tax-1', code: '01', percentage: 19.0, isSell: true },
-              { id: 'tax-2', code: '04', percentage: 8.0, isSell: true },
-            ],
+        items: [
+          {
+            ...manualInvoiceWithTaxes.items[0],
+            product: {
+              ...manualInvoiceWithTaxes.items[0].product,
+              taxes: [
+                { id: 'tax-1', code: '01', percentage: 19.0, isSell: true },
+                { id: 'tax-2', code: '04', percentage: 8.0, isSell: true },
+              ],
+            },
           },
-        }],
+        ],
       });
       factusGateway.createInvoice.mockResolvedValue({
         status: 'OK',
@@ -602,13 +601,15 @@ describe('ElectronicBillsService', () => {
     it('sends taxes:[] for exempt products from linked invoice', async () => {
       invoiceRepo.findOne.mockResolvedValue({
         ...manualInvoiceWithTaxes,
-        items: [{
-          ...manualInvoiceWithTaxes.items[0],
-          product: {
-            ...manualInvoiceWithTaxes.items[0].product,
-            taxes: [],
+        items: [
+          {
+            ...manualInvoiceWithTaxes.items[0],
+            product: {
+              ...manualInvoiceWithTaxes.items[0].product,
+              taxes: [],
+            },
           },
-        }],
+        ],
       });
       factusGateway.createInvoice.mockResolvedValue({
         status: 'OK',

@@ -109,7 +109,10 @@ describe('CustomersCreditService', () => {
 
   describe('getCreditPortfolio', () => {
     it('should return portfolio with limit, balance, available credit and utilization', async () => {
-      const customer = makeCustomer({ creditLimit: 5000000, currentBalance: 1000000 });
+      const customer = makeCustomer({
+        creditLimit: 5000000,
+        currentBalance: 1000000,
+      });
       mockCustomerRepository.findOne.mockResolvedValue(customer);
 
       const result = await service.getCreditPortfolio('cust-1');
@@ -157,9 +160,14 @@ describe('CustomersCreditService', () => {
     it('should update creditLimit and return updated customer', async () => {
       const customer = makeCustomer({ creditLimit: 3000000 });
       mockCustomerRepository.findOne.mockResolvedValue(customer);
-      mockCustomerRepository.save.mockResolvedValue({ ...customer, creditLimit: 5000000 });
+      mockCustomerRepository.save.mockResolvedValue({
+        ...customer,
+        creditLimit: 5000000,
+      });
 
-      const result = await service.setCreditLimit('cust-1', { creditLimit: 5000000 });
+      const result = await service.setCreditLimit('cust-1', {
+        creditLimit: 5000000,
+      });
 
       expect(mockCustomerRepository.save).toHaveBeenCalled();
       expect(result.creditLimit).toBe(5000000);
@@ -168,9 +176,14 @@ describe('CustomersCreditService', () => {
     it('should clear creditLimit when null is sent', async () => {
       const customer = makeCustomer({ creditLimit: 5000000 });
       mockCustomerRepository.findOne.mockResolvedValue(customer);
-      mockCustomerRepository.save.mockResolvedValue({ ...customer, creditLimit: null });
+      mockCustomerRepository.save.mockResolvedValue({
+        ...customer,
+        creditLimit: null,
+      });
 
-      const result = await service.setCreditLimit('cust-1', { creditLimit: null });
+      const result = await service.setCreditLimit('cust-1', {
+        creditLimit: null,
+      });
 
       expect(result.creditLimit).toBeNull();
     });
@@ -283,7 +296,10 @@ describe('CustomersCreditService', () => {
           updatedAt: new Date(),
         },
       ];
-      mockPaymentRecordRepository.findAndCount.mockResolvedValue([records, records.length]);
+      mockPaymentRecordRepository.findAndCount.mockResolvedValue([
+        records,
+        records.length,
+      ]);
 
       const result = await service.getPaymentHistory('cust-1');
 
@@ -371,7 +387,12 @@ describe('CustomersCreditService', () => {
         },
       });
       mockPaymentRecordRepository.find.mockResolvedValue([
-        { ...basePaymentRecord, id: 'pay-1', amount: 400000, paymentDate: new Date('2026-06-15') },
+        {
+          ...basePaymentRecord,
+          id: 'pay-1',
+          amount: 400000,
+          paymentDate: new Date('2026-06-15'),
+        },
       ]);
 
       const result = await service.getPaymentReceipt('cust-1', 'pay-1');
@@ -409,7 +430,11 @@ describe('CustomersCreditService', () => {
       mockCustomerRepository.findOne.mockResolvedValue(baseCustomer);
       mockPaymentRecordRepository.findOne.mockResolvedValue({
         ...basePaymentRecord,
-        invoice: { ...baseInvoice, status: InvoiceStatus.ON_CREDIT, totalAmount: 1000000 },
+        invoice: {
+          ...baseInvoice,
+          status: InvoiceStatus.ON_CREDIT,
+          totalAmount: 1000000,
+        },
       });
       mockPaymentRecordRepository.find.mockResolvedValue([
         { ...basePaymentRecord, id: 'pay-1', amount: 400000 },
@@ -447,7 +472,11 @@ describe('CustomersCreditService', () => {
       mockCustomerRepository.findOne.mockResolvedValue(baseCustomer);
       mockPaymentRecordRepository.findOne.mockResolvedValue({
         ...basePaymentRecord,
-        invoice: { ...baseInvoice, status: InvoiceStatus.ON_CREDIT, totalAmount: 1000000 },
+        invoice: {
+          ...baseInvoice,
+          status: InvoiceStatus.ON_CREDIT,
+          totalAmount: 1000000,
+        },
       });
       mockPaymentRecordRepository.find.mockResolvedValue([
         { ...basePaymentRecord, id: 'pay-1', amount: 1200000 },
@@ -477,12 +506,31 @@ describe('CustomersCreditService', () => {
       mockPaymentRecordRepository.findOne.mockResolvedValue({
         ...basePaymentRecord,
         id: 'pay-2',
-        invoice: { ...baseInvoice, status: InvoiceStatus.ON_CREDIT, totalAmount: 1000000 },
+        invoice: {
+          ...baseInvoice,
+          status: InvoiceStatus.ON_CREDIT,
+          totalAmount: 1000000,
+        },
       });
       mockPaymentRecordRepository.find.mockResolvedValue([
-        { ...basePaymentRecord, id: 'pay-3', amount: 200000, paymentDate: new Date('2026-07-01') },
-        { ...basePaymentRecord, id: 'pay-2', amount: 300000, paymentDate: new Date('2026-06-20') },
-        { ...basePaymentRecord, id: 'pay-1', amount: 500000, paymentDate: new Date('2026-06-01') },
+        {
+          ...basePaymentRecord,
+          id: 'pay-3',
+          amount: 200000,
+          paymentDate: new Date('2026-07-01'),
+        },
+        {
+          ...basePaymentRecord,
+          id: 'pay-2',
+          amount: 300000,
+          paymentDate: new Date('2026-06-20'),
+        },
+        {
+          ...basePaymentRecord,
+          id: 'pay-1',
+          amount: 500000,
+          paymentDate: new Date('2026-06-01'),
+        },
       ]);
 
       const result = await service.getPaymentReceipt('cust-1', 'pay-2');
@@ -499,7 +547,11 @@ describe('CustomersCreditService', () => {
       mockCustomerRepository.findOne.mockResolvedValue(baseCustomer);
       mockPaymentRecordRepository.findOne.mockResolvedValue({
         ...basePaymentRecord,
-        invoice: { ...baseInvoice, status: InvoiceStatus.PAID, totalAmount: 1000000 },
+        invoice: {
+          ...baseInvoice,
+          status: InvoiceStatus.PAID,
+          totalAmount: 1000000,
+        },
       });
       mockPaymentRecordRepository.find.mockResolvedValue([
         { ...basePaymentRecord, id: 'pay-1', amount: 1000000 },
@@ -514,7 +566,12 @@ describe('CustomersCreditService', () => {
       mockCustomerRepository.findOne.mockResolvedValue(baseCustomer);
       mockPaymentRecordRepository.findOne.mockResolvedValue({
         ...basePaymentRecord,
-        invoice: { ...baseInvoice, installments: 3, paymentFrequency: 'MONTHLY', dueDate: new Date('2026-09-01') },
+        invoice: {
+          ...baseInvoice,
+          installments: 3,
+          paymentFrequency: 'MONTHLY',
+          dueDate: new Date('2026-09-01'),
+        },
       });
       mockPaymentRecordRepository.find.mockResolvedValue([
         { ...basePaymentRecord, id: 'pay-1', amount: 400000 },
@@ -528,7 +585,12 @@ describe('CustomersCreditService', () => {
       mockCustomerRepository.findOne.mockResolvedValue(baseCustomer);
       mockPaymentRecordRepository.findOne.mockResolvedValue({
         ...basePaymentRecord,
-        invoice: { ...baseInvoice, installments: 3, paymentFrequency: 'MONTHLY', dueDate: new Date('2026-09-01') },
+        invoice: {
+          ...baseInvoice,
+          installments: 3,
+          paymentFrequency: 'MONTHLY',
+          dueDate: new Date('2026-09-01'),
+        },
       });
       mockPaymentRecordRepository.find.mockResolvedValue([
         { ...basePaymentRecord, id: 'pay-1', amount: 400000 },
@@ -542,7 +604,12 @@ describe('CustomersCreditService', () => {
       mockCustomerRepository.findOne.mockResolvedValue(baseCustomer);
       mockPaymentRecordRepository.findOne.mockResolvedValue({
         ...basePaymentRecord,
-        invoice: { ...baseInvoice, installments: 3, paymentFrequency: 'MONTHLY', dueDate: new Date('2026-09-01') },
+        invoice: {
+          ...baseInvoice,
+          installments: 3,
+          paymentFrequency: 'MONTHLY',
+          dueDate: new Date('2026-09-01'),
+        },
       });
       mockPaymentRecordRepository.find.mockResolvedValue([
         { ...basePaymentRecord, id: 'pay-1', amount: 400000 },
@@ -556,7 +623,12 @@ describe('CustomersCreditService', () => {
       mockCustomerRepository.findOne.mockResolvedValue(baseCustomer);
       mockPaymentRecordRepository.findOne.mockResolvedValue({
         ...basePaymentRecord,
-        invoice: { ...baseInvoice, installments: null, paymentFrequency: null, dueDate: null },
+        invoice: {
+          ...baseInvoice,
+          installments: null,
+          paymentFrequency: null,
+          dueDate: null,
+        },
       });
       mockPaymentRecordRepository.find.mockResolvedValue([
         { ...basePaymentRecord, id: 'pay-1', amount: 400000 },
@@ -573,7 +645,11 @@ describe('CustomersCreditService', () => {
       mockPaymentRecordRepository.findOne.mockResolvedValue({
         ...basePaymentRecord,
         id: 'pay-1',
-        invoice: { ...baseInvoice, status: InvoiceStatus.PAID, totalAmount: 500000 },
+        invoice: {
+          ...baseInvoice,
+          status: InvoiceStatus.PAID,
+          totalAmount: 500000,
+        },
       });
       mockPaymentRecordRepository.find.mockResolvedValue([
         { ...basePaymentRecord, id: 'pay-1', amount: 500000 },
@@ -590,20 +666,51 @@ describe('CustomersCreditService', () => {
       mockPaymentRecordRepository.findOne.mockResolvedValue({
         ...basePaymentRecord,
         id: 'pay-4',
-        invoice: { ...baseInvoice, status: InvoiceStatus.ON_CREDIT, totalAmount: 2000000 },
+        invoice: {
+          ...baseInvoice,
+          status: InvoiceStatus.ON_CREDIT,
+          totalAmount: 2000000,
+        },
       });
       const manyPayments = [
-        { ...basePaymentRecord, id: 'pay-5', amount: 50000, paymentDate: new Date('2026-08-01') },
-        { ...basePaymentRecord, id: 'pay-4', amount: 100000, paymentDate: new Date('2026-07-15') },
-        { ...basePaymentRecord, id: 'pay-3', amount: 150000, paymentDate: new Date('2026-07-01') },
-        { ...basePaymentRecord, id: 'pay-2', amount: 200000, paymentDate: new Date('2026-06-15') },
-        { ...basePaymentRecord, id: 'pay-1', amount: 300000, paymentDate: new Date('2026-06-01') },
+        {
+          ...basePaymentRecord,
+          id: 'pay-5',
+          amount: 50000,
+          paymentDate: new Date('2026-08-01'),
+        },
+        {
+          ...basePaymentRecord,
+          id: 'pay-4',
+          amount: 100000,
+          paymentDate: new Date('2026-07-15'),
+        },
+        {
+          ...basePaymentRecord,
+          id: 'pay-3',
+          amount: 150000,
+          paymentDate: new Date('2026-07-01'),
+        },
+        {
+          ...basePaymentRecord,
+          id: 'pay-2',
+          amount: 200000,
+          paymentDate: new Date('2026-06-15'),
+        },
+        {
+          ...basePaymentRecord,
+          id: 'pay-1',
+          amount: 300000,
+          paymentDate: new Date('2026-06-01'),
+        },
       ];
       mockPaymentRecordRepository.find.mockResolvedValue(manyPayments);
 
       const result = await service.getPaymentReceipt('cust-1', 'pay-4');
       expect(result.allInvoicePayments).toHaveLength(5);
-      expect(result.allInvoicePayments.filter(p => p.isCurrentPayment)).toHaveLength(1);
+      expect(
+        result.allInvoicePayments.filter((p) => p.isCurrentPayment),
+      ).toHaveLength(1);
       expect(result.allInvoicePayments[0].id).toBe('pay-5');
       expect(result.remainingBalance).toBeGreaterThan(0);
     });

@@ -33,8 +33,10 @@ describe('IFactusQueryGateway (Task 1.1)', () => {
       listCreditNotes: jest.fn(),
     };
 
-    const result: PaginatedFactusResponse<FactusBill> =
-      await mock.listBills({ page: 1, perPage: 10 });
+    const result: PaginatedFactusResponse<FactusBill> = await mock.listBills({
+      page: 1,
+      perPage: 10,
+    });
 
     expect(result).toHaveProperty('data');
     expect(result).toHaveProperty('meta');

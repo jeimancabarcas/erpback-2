@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Tax } from './entities/tax.entity';
 import { PaymentMethod } from './entities/payment-method.entity';
 import { PaymentType } from './entities/payment-type.entity';
+import { Municipality } from './entities/municipality.entity';
 import { TaxesService } from './services/taxes.service';
 import { PaymentMethodsService } from './services/payment-methods.service';
 import { PaymentTypesService } from './services/payment-types.service';
@@ -13,7 +14,9 @@ import { SeedController } from './controllers/seed.controller';
 import { SeedService } from './services/seed.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Tax, PaymentMethod, PaymentType])],
+  imports: [
+    TypeOrmModule.forFeature([Tax, PaymentMethod, PaymentType, Municipality]),
+  ],
   controllers: [
     TaxesController,
     PaymentMethodsController,

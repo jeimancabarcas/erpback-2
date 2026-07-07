@@ -125,14 +125,28 @@ describe('SalesService.findAll — netTotal computation', () => {
           provide: InventoryService,
           useValue: {
             consumeStock: jest.fn(),
-            restoreStock: jest.fn().mockResolvedValue({ totalCost: 0, restoredQuantity: 1 }),
+            restoreStock: jest
+              .fn()
+              .mockResolvedValue({ totalCost: 0, restoredQuantity: 1 }),
           },
         },
         { provide: PdfGenerationService, useValue: {} },
         { provide: DataSource, useValue: {} },
         { provide: ScenarioDHandler, useValue: {} },
-        { provide: PaymentMethodsService, useValue: { findOne: jest.fn().mockResolvedValue({ code: '10' }), findByCode: jest.fn().mockResolvedValue({ code: '10' }) } },
-        { provide: PaymentTypesService, useValue: { findOne: jest.fn().mockResolvedValue({ code: '1' }), findByCode: jest.fn().mockResolvedValue({ code: '1' }) } },
+        {
+          provide: PaymentMethodsService,
+          useValue: {
+            findOne: jest.fn().mockResolvedValue({ code: '10' }),
+            findByCode: jest.fn().mockResolvedValue({ code: '10' }),
+          },
+        },
+        {
+          provide: PaymentTypesService,
+          useValue: {
+            findOne: jest.fn().mockResolvedValue({ code: '1' }),
+            findByCode: jest.fn().mockResolvedValue({ code: '1' }),
+          },
+        },
       ],
     }).compile();
     service = mod.get(SalesService);
@@ -284,7 +298,9 @@ describe('SalesService.create() — sequential numbering', () => {
           provide: InventoryService,
           useValue: {
             consumeStock: jest.fn(),
-            restoreStock: jest.fn().mockResolvedValue({ totalCost: 0, restoredQuantity: 1 }),
+            restoreStock: jest
+              .fn()
+              .mockResolvedValue({ totalCost: 0, restoredQuantity: 1 }),
           },
         },
         { provide: PdfGenerationService, useValue: {} },
@@ -299,10 +315,18 @@ describe('SalesService.create() — sequential numbering', () => {
           provide: ScenarioDHandler,
           useFactory: () =>
             new ScenarioDHandler({
-              restoreStock: jest.fn().mockResolvedValue({ totalCost: 0, restoredQuantity: 1 }),
+              restoreStock: jest
+                .fn()
+                .mockResolvedValue({ totalCost: 0, restoredQuantity: 1 }),
             } as any),
         },
-        { provide: PaymentMethodsService, useValue: { findOne: jest.fn().mockResolvedValue({ code: '10' }), findByCode: jest.fn().mockResolvedValue({ code: '10' }) } },
+        {
+          provide: PaymentMethodsService,
+          useValue: {
+            findOne: jest.fn().mockResolvedValue({ code: '10' }),
+            findByCode: jest.fn().mockResolvedValue({ code: '10' }),
+          },
+        },
         {
           provide: PaymentTypesService,
           useValue: paymentTypesServiceMock,
@@ -319,7 +343,7 @@ describe('SalesService.create() — sequential numbering', () => {
 
   it('manual: Factus NOT called; invoiceNumber = MAN-XXXXXX with 6-digit padding', async () => {
     await build({ withGateway: false });
-    const r = await service.create({ ...baseDto,  });
+    const r = await service.create({ ...baseDto });
     expect((r as any).invoiceNumber).toMatch(/^MAN-\d{6}$/);
     expect(r.sequentialNumber).toBe(1);
   });
@@ -333,9 +357,9 @@ describe('SalesService.create() — sequential numbering', () => {
 
   it('sequential creates produce incrementing numbers (1→000001, 2→000002)', async () => {
     await build({ withGateway: false });
-    const first = await service.create({ ...baseDto,  });
+    const first = await service.create({ ...baseDto });
     expect((first as any).invoiceNumber).toBe('MAN-000001');
-    const second = await service.create({ ...baseDto,  });
+    const second = await service.create({ ...baseDto });
     expect((second as any).invoiceNumber).toBe('MAN-000002');
   });
 
@@ -346,7 +370,6 @@ describe('SalesService.create() — sequential numbering', () => {
     const r = await service.create({
       ...baseDto,
       paymentTypeId: 'credit-payment-type-id',
-      
     });
     expect(r.status).toBe('ON_CREDIT');
 
@@ -364,11 +387,8 @@ describe('SalesService.create() — sequential numbering', () => {
     // Use 3 items to verify the balance matches totalAmount, not a fixed value
     const dto = {
       ...baseDto,
-      items: [
-        { productId: 'prod-1', quantity: 3 },
-      ],
+      items: [{ productId: 'prod-1', quantity: 3 }],
       paymentTypeId: 'credit-payment-type-id',
-      
     };
 
     await service.create(dto);
@@ -384,7 +404,10 @@ describe('SalesService.create() — sequential numbering', () => {
     await build({ withGateway: false });
     paymentTypesServiceMock.findOne.mockResolvedValue({ code: '1' });
 
-    const r = await service.create({ ...baseDto, paymentTypeId: 'cash-payment-type-id',  });
+    const r = await service.create({
+      ...baseDto,
+      paymentTypeId: 'cash-payment-type-id',
+    });
     expect(r.status).toBe('PAID');
 
     // Save should NOT have been called with a Customer entity (balance unchanged)
@@ -396,7 +419,7 @@ describe('SalesService.create() — sequential numbering', () => {
 
   it('no payment type defaults to PAID status', async () => {
     await build({ withGateway: false });
-    const r = await service.create({ ...baseDto,  });
+    const r = await service.create({ ...baseDto });
     expect(r.status).toBe('PAID');
   });
 
@@ -450,7 +473,8 @@ describe('SalesService.create() — sequential numbering', () => {
 
   it('consumeStock is called AFTER invoice save with correct referenceId', async () => {
     await build({ withGateway: false });
-    const consumeStockMock = (service as any).inventoryService.consumeStock as jest.Mock;
+    const consumeStockMock = (service as any).inventoryService
+      .consumeStock as jest.Mock;
     const queryRunnerSaveMock = queryRunner.manager.save as jest.Mock;
 
     await service.create({ ...baseDto });
@@ -607,7 +631,7 @@ describe('SalesService.create() — sequential numbering', () => {
         );
       });
 
-    const r = await service.create({ ...baseDto,  });
+    const r = await service.create({ ...baseDto });
 
     expect((r as any).invoiceNumber).toMatch(/^MAN-\d{6}$/);
   });
@@ -646,7 +670,7 @@ describe('SalesService — manual invoice paths', () => {
       id: 'inv-manual',
       sequentialNumber: 1,
       invoiceNumber: 'MAN-000001',
-      
+
       totalAmount: 1000,
       status: InvoiceStatus.PAID,
       notes: null,
@@ -670,7 +694,7 @@ describe('SalesService — manual invoice paths', () => {
       id: 'inv-electronic',
       sequentialNumber: 2,
       invoiceNumber: 'FAC-000002',
-      
+
       emission: null,
       ...overrides,
     });
@@ -680,7 +704,7 @@ describe('SalesService — manual invoice paths', () => {
       id: 'inv-emitted-posthoc',
       sequentialNumber: 3,
       invoiceNumber: 'MAN-000003',
-      
+
       emission: {
         id: 'em-1',
         number: 'SETP990099',
@@ -796,7 +820,9 @@ describe('SalesService — manual invoice paths', () => {
           provide: InventoryService,
           useValue: {
             consumeStock: jest.fn(),
-            restoreStock: jest.fn().mockResolvedValue({ totalCost: 0, restoredQuantity: 1 }),
+            restoreStock: jest
+              .fn()
+              .mockResolvedValue({ totalCost: 0, restoredQuantity: 1 }),
           },
         },
         { provide: PdfGenerationService, useValue: pdfService },
@@ -811,11 +837,25 @@ describe('SalesService — manual invoice paths', () => {
           provide: ScenarioDHandler,
           useFactory: () =>
             new ScenarioDHandler({
-              restoreStock: jest.fn().mockResolvedValue({ totalCost: 0, restoredQuantity: 1 }),
+              restoreStock: jest
+                .fn()
+                .mockResolvedValue({ totalCost: 0, restoredQuantity: 1 }),
             } as any),
         },
-        { provide: PaymentMethodsService, useValue: { findOne: jest.fn().mockResolvedValue({ code: '10' }), findByCode: jest.fn().mockResolvedValue({ code: '10' }) } },
-        { provide: PaymentTypesService, useValue: { findOne: jest.fn().mockResolvedValue({ code: '1' }), findByCode: jest.fn().mockResolvedValue({ code: '1' }) } },
+        {
+          provide: PaymentMethodsService,
+          useValue: {
+            findOne: jest.fn().mockResolvedValue({ code: '10' }),
+            findByCode: jest.fn().mockResolvedValue({ code: '10' }),
+          },
+        },
+        {
+          provide: PaymentTypesService,
+          useValue: {
+            findOne: jest.fn().mockResolvedValue({ code: '1' }),
+            findByCode: jest.fn().mockResolvedValue({ code: '1' }),
+          },
+        },
       ],
     }).compile();
     service = mod.get(SalesService);
@@ -1112,9 +1152,7 @@ describe('SalesService — manual invoice paths', () => {
 
     expect(factusGateway.createInvoice).toHaveBeenCalledWith(
       expect.objectContaining({
-        items: expect.arrayContaining([
-          expect.objectContaining({ taxes: [] }),
-        ]),
+        items: expect.arrayContaining([expect.objectContaining({ taxes: [] })]),
       }),
     );
   });
@@ -1244,7 +1282,9 @@ describe('SalesService — manual invoice paths', () => {
           provide: InventoryService,
           useValue: {
             consumeStock: jest.fn(),
-            restoreStock: jest.fn().mockResolvedValue({ totalCost: 0, restoredQuantity: 1 }),
+            restoreStock: jest
+              .fn()
+              .mockResolvedValue({ totalCost: 0, restoredQuantity: 1 }),
           },
         },
         { provide: PdfGenerationService, useValue: pdfService },
@@ -1257,11 +1297,25 @@ describe('SalesService — manual invoice paths', () => {
           provide: ScenarioDHandler,
           useFactory: () =>
             new ScenarioDHandler({
-              restoreStock: jest.fn().mockResolvedValue({ totalCost: 0, restoredQuantity: 1 }),
+              restoreStock: jest
+                .fn()
+                .mockResolvedValue({ totalCost: 0, restoredQuantity: 1 }),
             } as any),
         },
-        { provide: PaymentMethodsService, useValue: { findOne: jest.fn().mockResolvedValue({ code: '10' }), findByCode: jest.fn().mockResolvedValue({ code: '10' }) } },
-        { provide: PaymentTypesService, useValue: { findOne: jest.fn().mockResolvedValue({ code: '1' }), findByCode: jest.fn().mockResolvedValue({ code: '1' }) } },
+        {
+          provide: PaymentMethodsService,
+          useValue: {
+            findOne: jest.fn().mockResolvedValue({ code: '10' }),
+            findByCode: jest.fn().mockResolvedValue({ code: '10' }),
+          },
+        },
+        {
+          provide: PaymentTypesService,
+          useValue: {
+            findOne: jest.fn().mockResolvedValue({ code: '1' }),
+            findByCode: jest.fn().mockResolvedValue({ code: '1' }),
+          },
+        },
       ],
     }).compile();
     const svc = mod.get(SalesService);
@@ -1315,7 +1369,9 @@ describe('SalesService — manual invoice paths', () => {
           provide: InventoryService,
           useValue: {
             consumeStock: jest.fn(),
-            restoreStock: jest.fn().mockResolvedValue({ totalCost: 0, restoredQuantity: 1 }),
+            restoreStock: jest
+              .fn()
+              .mockResolvedValue({ totalCost: 0, restoredQuantity: 1 }),
           },
         },
         { provide: PdfGenerationService, useValue: pdfService },
@@ -1328,11 +1384,25 @@ describe('SalesService — manual invoice paths', () => {
           provide: ScenarioDHandler,
           useFactory: () =>
             new ScenarioDHandler({
-              restoreStock: jest.fn().mockResolvedValue({ totalCost: 0, restoredQuantity: 1 }),
+              restoreStock: jest
+                .fn()
+                .mockResolvedValue({ totalCost: 0, restoredQuantity: 1 }),
             } as any),
         },
-        { provide: PaymentMethodsService, useValue: { findOne: jest.fn().mockResolvedValue({ code: '10' }), findByCode: jest.fn().mockResolvedValue({ code: '10' }) } },
-        { provide: PaymentTypesService, useValue: { findOne: jest.fn().mockResolvedValue({ code: '1' }), findByCode: jest.fn().mockResolvedValue({ code: '1' }) } },
+        {
+          provide: PaymentMethodsService,
+          useValue: {
+            findOne: jest.fn().mockResolvedValue({ code: '10' }),
+            findByCode: jest.fn().mockResolvedValue({ code: '10' }),
+          },
+        },
+        {
+          provide: PaymentTypesService,
+          useValue: {
+            findOne: jest.fn().mockResolvedValue({ code: '1' }),
+            findByCode: jest.fn().mockResolvedValue({ code: '1' }),
+          },
+        },
       ],
     }).compile();
     const svc = mod.get(SalesService);
@@ -1340,7 +1410,6 @@ describe('SalesService — manual invoice paths', () => {
       svc.createCreditNote('inv-cancel', { correctionConceptCode: '1' } as any),
     ).rejects.toThrow('anuladas');
   });
-
 });
 
 // ---------------------------------------------------------------------------
@@ -1376,7 +1445,7 @@ describe('SalesService — guard: electronic note for manual invoice', () => {
       id: 'inv-manual',
       sequentialNumber: 1,
       invoiceNumber: 'MAN-000001',
-      
+
       totalAmount: 1000,
       status: InvoiceStatus.PAID,
       notes: null,
@@ -1401,7 +1470,7 @@ describe('SalesService — guard: electronic note for manual invoice', () => {
       id: 'inv-electronic',
       sequentialNumber: 2,
       invoiceNumber: 'FAC-000002',
-      
+
       ...overrides,
     });
   }
@@ -1502,7 +1571,9 @@ describe('SalesService — guard: electronic note for manual invoice', () => {
           provide: InventoryService,
           useValue: {
             consumeStock: jest.fn(),
-            restoreStock: jest.fn().mockResolvedValue({ totalCost: 0, restoredQuantity: 1 }),
+            restoreStock: jest
+              .fn()
+              .mockResolvedValue({ totalCost: 0, restoredQuantity: 1 }),
           },
         },
         { provide: PdfGenerationService, useValue: pdfService },
@@ -1517,11 +1588,25 @@ describe('SalesService — guard: electronic note for manual invoice', () => {
           provide: ScenarioDHandler,
           useFactory: () =>
             new ScenarioDHandler({
-              restoreStock: jest.fn().mockResolvedValue({ totalCost: 0, restoredQuantity: 1 }),
+              restoreStock: jest
+                .fn()
+                .mockResolvedValue({ totalCost: 0, restoredQuantity: 1 }),
             } as any),
         },
-        { provide: PaymentMethodsService, useValue: { findOne: jest.fn().mockResolvedValue({ code: '10' }), findByCode: jest.fn().mockResolvedValue({ code: '10' }) } },
-        { provide: PaymentTypesService, useValue: { findOne: jest.fn().mockResolvedValue({ code: '1' }), findByCode: jest.fn().mockResolvedValue({ code: '1' }) } },
+        {
+          provide: PaymentMethodsService,
+          useValue: {
+            findOne: jest.fn().mockResolvedValue({ code: '10' }),
+            findByCode: jest.fn().mockResolvedValue({ code: '10' }),
+          },
+        },
+        {
+          provide: PaymentTypesService,
+          useValue: {
+            findOne: jest.fn().mockResolvedValue({ code: '1' }),
+            findByCode: jest.fn().mockResolvedValue({ code: '1' }),
+          },
+        },
       ],
     }).compile();
     service = mod.get(SalesService);
@@ -1551,9 +1636,11 @@ describe('SalesService — guard: electronic note for manual invoice', () => {
     const dto = {
       correctionConceptCode: '2',
     };
-    invoiceRepo.findOne = jest.fn().mockResolvedValue(
-      buildElectronicInv({ emission: { id: 'em-1', number: 'FAC-001' } }),
-    );
+    invoiceRepo.findOne = jest
+      .fn()
+      .mockResolvedValue(
+        buildElectronicInv({ emission: { id: 'em-1', number: 'FAC-001' } }),
+      );
     await service.createCreditNote('inv-electronic', dto);
     expect(factusGateway.createCreditNote).toHaveBeenCalledTimes(1);
   });
@@ -1636,7 +1723,9 @@ describe('SalesService — guard: electronic note for manual invoice', () => {
           provide: InventoryService,
           useValue: {
             consumeStock: jest.fn(),
-            restoreStock: jest.fn().mockResolvedValue({ totalCost: 0, restoredQuantity: 0 }),
+            restoreStock: jest
+              .fn()
+              .mockResolvedValue({ totalCost: 0, restoredQuantity: 0 }),
           },
         },
         { provide: PdfGenerationService, useValue: pdfService },
@@ -1648,7 +1737,9 @@ describe('SalesService — guard: electronic note for manual invoice', () => {
           provide: ScenarioDHandler,
           useFactory: () =>
             new ScenarioDHandler({
-              restoreStock: jest.fn().mockResolvedValue({ totalCost: 0, restoredQuantity: 0 }),
+              restoreStock: jest
+                .fn()
+                .mockResolvedValue({ totalCost: 0, restoredQuantity: 0 }),
             } as any),
         },
         {
@@ -1708,7 +1799,7 @@ describe('SalesService — validateCumulativeLimits', () => {
     return {
       id: 'inv-manual',
       sequentialNumber: 1,
-      
+
       status: InvoiceStatus.PAID,
       notes: null,
       creditNotes: [],
@@ -1819,7 +1910,9 @@ describe('SalesService — validateCumulativeLimits', () => {
           provide: InventoryService,
           useValue: {
             consumeStock: jest.fn(),
-            restoreStock: jest.fn().mockResolvedValue({ totalCost: 0, restoredQuantity: 1 }),
+            restoreStock: jest
+              .fn()
+              .mockResolvedValue({ totalCost: 0, restoredQuantity: 1 }),
           },
         },
         { provide: PdfGenerationService, useValue: pdfService },
@@ -1834,11 +1927,25 @@ describe('SalesService — validateCumulativeLimits', () => {
           provide: ScenarioDHandler,
           useFactory: () =>
             new ScenarioDHandler({
-              restoreStock: jest.fn().mockResolvedValue({ totalCost: 0, restoredQuantity: 1 }),
+              restoreStock: jest
+                .fn()
+                .mockResolvedValue({ totalCost: 0, restoredQuantity: 1 }),
             } as any),
         },
-        { provide: PaymentMethodsService, useValue: { findOne: jest.fn().mockResolvedValue({ code: '10' }), findByCode: jest.fn().mockResolvedValue({ code: '10' }) } },
-        { provide: PaymentTypesService, useValue: { findOne: jest.fn().mockResolvedValue({ code: '1' }), findByCode: jest.fn().mockResolvedValue({ code: '1' }) } },
+        {
+          provide: PaymentMethodsService,
+          useValue: {
+            findOne: jest.fn().mockResolvedValue({ code: '10' }),
+            findByCode: jest.fn().mockResolvedValue({ code: '10' }),
+          },
+        },
+        {
+          provide: PaymentTypesService,
+          useValue: {
+            findOne: jest.fn().mockResolvedValue({ code: '1' }),
+            findByCode: jest.fn().mockResolvedValue({ code: '1' }),
+          },
+        },
       ],
     }).compile();
     service = mod.get(SalesService);
@@ -1915,7 +2022,9 @@ describe('SalesService.searchManualBills', () => {
           provide: InventoryService,
           useValue: {
             consumeStock: jest.fn(),
-            restoreStock: jest.fn().mockResolvedValue({ totalCost: 0, restoredQuantity: 1 }),
+            restoreStock: jest
+              .fn()
+              .mockResolvedValue({ totalCost: 0, restoredQuantity: 1 }),
           },
         },
         { provide: PdfGenerationService, useValue: {} },
@@ -1943,7 +2052,7 @@ describe('SalesService.searchManualBills', () => {
   const manualInvoiceTemplate = {
     id: 'inv-manual-1',
     sequentialNumber: 42,
-    
+
     status: InvoiceStatus.PAID,
     notes: null,
     creditNotes: [],
@@ -1996,9 +2105,7 @@ describe('SalesService.searchManualBills', () => {
 
   it('searches with partial number (sequential)', async () => {
     await build();
-    invoiceRepo.find = jest.fn().mockResolvedValue([
-      manualInvoiceTemplate,
-    ]);
+    invoiceRepo.find = jest.fn().mockResolvedValue([manualInvoiceTemplate]);
 
     const result = await service.searchManualBills('42');
     expect(invoiceRepo.find).toHaveBeenCalledWith(
@@ -2013,9 +2120,7 @@ describe('SalesService.searchManualBills', () => {
 
   it('transforms results into ManualInvoiceSearchResultDto shape', async () => {
     await build();
-    invoiceRepo.find = jest.fn().mockResolvedValue([
-      manualInvoiceTemplate,
-    ]);
+    invoiceRepo.find = jest.fn().mockResolvedValue([manualInvoiceTemplate]);
 
     const result = await service.searchManualBills('42');
     expect(result[0]).toHaveProperty('id');

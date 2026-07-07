@@ -43,7 +43,13 @@ describe('SeedController', () => {
 
       expect(mockSeedService.seed).toHaveBeenCalled();
       expect(result).toEqual({
-        seeded: { taxes: 5, paymentMethods: 6, paymentTypes: 2, categories: 10, products: 30 },
+        seeded: {
+          taxes: 5,
+          paymentMethods: 6,
+          paymentTypes: 2,
+          categories: 10,
+          products: 30,
+        },
       });
     });
 

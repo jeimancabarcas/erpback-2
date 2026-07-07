@@ -161,7 +161,7 @@ export interface FactusSupportDocumentEstablishment {
 export interface FactusSupportDocumentProvider {
   identification_document_code: string;
   identification: string;
-  dv: string;
+  dv?: string;
   names: string;
   address: string;
   country_code: string;
@@ -189,7 +189,8 @@ export interface FactusSupportDocumentResponse {
 export interface FactusSupportDocumentResponseData {
   referenceCode: string;
   number: string;
-  cude: string;
+  cude?: string;
+  cuds?: string;
   qrUrl?: string;
   publicUrl?: string;
   isValidated: boolean;
@@ -198,6 +199,7 @@ export interface FactusSupportDocumentResponseData {
   items: any[];
   taxes: any[];
   totals: FactusInvoiceResponseTotals | null;
+  errors?: string[];
 }
 
 export interface IFactusInvoicingGateway {

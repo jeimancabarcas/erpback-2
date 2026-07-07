@@ -12,7 +12,10 @@ import {
   ConflictException,
   NotFoundException,
 } from '@nestjs/common';
-import { InventoryMovement, MovementType } from './entities/inventory-movement.entity';
+import {
+  InventoryMovement,
+  MovementType,
+} from './entities/inventory-movement.entity';
 
 describe('InventoryService', () => {
   let service: InventoryService;
@@ -597,10 +600,7 @@ describe('InventoryService', () => {
         },
       ] as any[];
 
-      mockMovementRepository.findAndCount.mockResolvedValue([
-        mockMovements,
-        1,
-      ]);
+      mockMovementRepository.findAndCount.mockResolvedValue([mockMovements, 1]);
 
       const result = await service.getMovements({});
 
@@ -632,10 +632,7 @@ describe('InventoryService', () => {
         },
       ] as any[];
 
-      mockMovementRepository.findAndCount.mockResolvedValue([
-        outMovements,
-        1,
-      ]);
+      mockMovementRepository.findAndCount.mockResolvedValue([outMovements, 1]);
 
       const result = await service.getMovements({ type: 'Out' });
 
@@ -762,7 +759,9 @@ describe('InventoryService', () => {
         Promise.resolve(p),
       );
       // Spy on logger
-      const loggerWarnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation();
+      const loggerWarnSpy = jest
+        .spyOn(service['logger'], 'warn')
+        .mockImplementation();
 
       await service.consumeStock(productId, 5);
 
@@ -862,7 +861,10 @@ describe('InventoryService', () => {
         return Promise.resolve(b);
       });
 
-      const { totalCost, restoredQuantity } = await service.restoreStock(productId, 2);
+      const { totalCost, restoredQuantity } = await service.restoreStock(
+        productId,
+        2,
+      );
 
       // Batch should have 2 units restored: 7 + 2 = 9
       expect(currentBatch.remainingQuantity).toBe(9);
@@ -918,7 +920,10 @@ describe('InventoryService', () => {
         return Promise.resolve(b);
       });
 
-      const { totalCost, restoredQuantity } = await service.restoreStock(productId, 4);
+      const { totalCost, restoredQuantity } = await service.restoreStock(
+        productId,
+        4,
+      );
 
       // Batch B (newest) gets all 4 restored: 5 + 4 = 9
       expect(batchB.remainingQuantity).toBe(9);
@@ -961,7 +966,10 @@ describe('InventoryService', () => {
         return Promise.resolve(b);
       });
 
-      const { totalCost, restoredQuantity } = await service.restoreStock(productId, 3);
+      const { totalCost, restoredQuantity } = await service.restoreStock(
+        productId,
+        3,
+      );
 
       expect(currentBatch.remainingQuantity).toBe(10); // fully restored to initial
       expect(product.currentStock).toBe(10); // 7 + 3
@@ -1055,7 +1063,9 @@ describe('InventoryService', () => {
         currentBatch = b;
         return Promise.resolve(b);
       });
-      const loggerWarnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation();
+      const loggerWarnSpy = jest
+        .spyOn(service['logger'], 'warn')
+        .mockImplementation();
 
       await service.restoreStock(productId, 2);
 
@@ -1151,7 +1161,10 @@ describe('InventoryService', () => {
       // Request restore 5 — batch capped at initialQuantity (3 restored to batch),
       // but product stock always gets the full quantity (5) since the credit note
       // reverses the full invoice consumption regardless of batch state.
-      const { totalCost, restoredQuantity } = await service.restoreStock(productId, 5);
+      const { totalCost, restoredQuantity } = await service.restoreStock(
+        productId,
+        5,
+      );
 
       expect(currentBatch.remainingQuantity).toBe(10); // capped at initialQuantity
       expect(product.currentStock).toBe(12); // 7 + 5 (full quantity, not capped by batch)

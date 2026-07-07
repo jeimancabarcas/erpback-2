@@ -6,8 +6,20 @@ import {
   Inject,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, Between, Like, EntityManager, IsNull } from 'typeorm';
-import { Invoice, InvoiceStatus, PaymentFrequency, FREQUENCY_DAYS } from './entities/invoice.entity';
+import {
+  Repository,
+  DataSource,
+  Between,
+  Like,
+  EntityManager,
+  IsNull,
+} from 'typeorm';
+import {
+  Invoice,
+  InvoiceStatus,
+  PaymentFrequency,
+  FREQUENCY_DAYS,
+} from './entities/invoice.entity';
 import { InvoiceItem } from './entities/invoice-item.entity';
 import { InvoiceElectronicEmission } from './entities/invoice-electronic-emission.entity';
 import { InventoryBatch } from '../inventory/entities/inventory-batch.entity';
@@ -168,8 +180,9 @@ export class SalesService {
       // 4. Determinar estado de la factura según tipo de pago
       let invoiceStatus = InvoiceStatus.PAID;
       if (createDto.paymentTypeId) {
-        const paymentType =
-          await this.paymentTypesService.findOne(createDto.paymentTypeId);
+        const paymentType = await this.paymentTypesService.findOne(
+          createDto.paymentTypeId,
+        );
         if (paymentType?.code === '2') {
           invoiceStatus = InvoiceStatus.ON_CREDIT;
         }
@@ -240,7 +253,8 @@ export class SalesService {
 
       // Attach computed fields before returning
       const prefix = savedInvoice.emission ? 'FAC' : 'MAN';
-      (savedInvoice as any).invoiceNumber = `${prefix}-${String(savedInvoice.sequentialNumber).padStart(6, '0')}`;
+      (savedInvoice as any).invoiceNumber =
+        `${prefix}-${String(savedInvoice.sequentialNumber).padStart(6, '0')}`;
 
       return savedInvoice;
     } catch (error) {
@@ -365,10 +379,11 @@ export class SalesService {
     };
 
     // Resolver método y forma de pago
-    const { paymentFormCode, paymentMethodCode } = await this.resolvePaymentConfig(
-      invoice.paymentMethodId,
-      invoice.paymentTypeId,
-    );
+    const { paymentFormCode, paymentMethodCode } =
+      await this.resolvePaymentConfig(
+        invoice.paymentMethodId,
+        invoice.paymentTypeId,
+      );
     factusPayload.paymentDetails[0].paymentForm = paymentFormCode;
     factusPayload.paymentDetails[0].paymentMethodCode = paymentMethodCode;
 
@@ -383,8 +398,7 @@ export class SalesService {
         await this.invoiceRepository.save(invoice);
       }
 
-      const factusResponse =
-        await callFactusWithRetry();
+      const factusResponse = await callFactusWithRetry();
 
       // Create InvoiceElectronicEmission from full Factus response
       const emission = this.invoiceEmissionRepository.create({
@@ -469,7 +483,8 @@ export class SalesService {
 
       // Attach computed fields before returning
       const prefix = invoice.emission ? 'FAC' : 'MAN';
-      (invoice as any).invoiceNumber = `${prefix}-${String(invoice.sequentialNumber).padStart(6, '0')}`;
+      (invoice as any).invoiceNumber =
+        `${prefix}-${String(invoice.sequentialNumber).padStart(6, '0')}`;
 
       return invoice;
     } catch (error) {
@@ -482,7 +497,9 @@ export class SalesService {
     }
   }
 
-  async searchManualBills(number: string): Promise<ManualInvoiceSearchResultDto[]> {
+  async searchManualBills(
+    number: string,
+  ): Promise<ManualInvoiceSearchResultDto[]> {
     const seqNum = parseInt(number, 10);
     const where: any = {
       factusReferenceCode: IsNull(),
@@ -534,11 +551,7 @@ export class SalesService {
     } = queryDto;
     const skip = (page - 1) * limit;
 
-    const where = buildWhere(
-      queryDto,
-      [],
-      ['customerId', 'status'],
-    );
+    const where = buildWhere(queryDto, [], ['customerId', 'status']);
 
     const [data, total] = await this.invoiceRepository.findAndCount({
       where,
@@ -600,7 +613,8 @@ export class SalesService {
 
     // Compute derived fields
     const prefix = invoice.emission ? 'FAC' : 'MAN';
-    (invoice as any).invoiceNumber = `${prefix}-${String(invoice.sequentialNumber).padStart(6, '0')}`;
+    (invoice as any).invoiceNumber =
+      `${prefix}-${String(invoice.sequentialNumber).padStart(6, '0')}`;
 
     return invoice;
   }
@@ -645,7 +659,9 @@ export class SalesService {
 
       for (const inv of invoices) {
         const invTotal = (inv.items ?? []).reduce(
-          (acc, item) => acc + Number(item.quantity) * Number(item.product?.sellingPrice || 0),
+          (acc, item) =>
+            acc +
+            Number(item.quantity) * Number(item.product?.sellingPrice || 0),
           0,
         );
         totalSales += invTotal;
@@ -848,12 +864,14 @@ export class SalesService {
           ii.product?.sku === dtoItem.codeReference,
       );
       if (!invoiceItem) continue;
-      const unitPrice = dtoItem.price ?? Number(invoiceItem.product?.sellingPrice || 0);
+      const unitPrice =
+        dtoItem.price ?? Number(invoiceItem.product?.sellingPrice || 0);
       newNoteAmount += dtoItem.quantity * unitPrice;
     }
 
     const invoiceTotal = (invoice.items ?? []).reduce(
-      (acc, item) => acc + Number(item.quantity) * Number(item.product?.sellingPrice || 0),
+      (acc, item) =>
+        acc + Number(item.quantity) * Number(item.product?.sellingPrice || 0),
       0,
     );
     if (existingAmount + newNoteAmount > invoiceTotal) {
@@ -924,10 +942,11 @@ export class SalesService {
           items: factusItems,
         };
 
-        const { paymentFormCode, paymentMethodCode } = await this.resolvePaymentConfig(
-          invoice.paymentMethodId,
-          invoice.paymentTypeId,
-        );
+        const { paymentFormCode, paymentMethodCode } =
+          await this.resolvePaymentConfig(
+            invoice.paymentMethodId,
+            invoice.paymentTypeId,
+          );
         factusPayload.paymentDetails[0].paymentForm = paymentFormCode;
         factusPayload.paymentDetails[0].paymentMethodCode = paymentMethodCode;
 
@@ -1194,9 +1213,7 @@ export class SalesService {
       ? [referenceCode]
       : invoice.factusReferenceCode
         ? [invoice.factusReferenceCode]
-        : [
-            `FAC-REF-${invoice.id}`,
-          ];
+        : [`FAC-REF-${invoice.id}`];
 
     for (const code of codesToTry) {
       try {
@@ -1229,17 +1246,13 @@ export class SalesService {
       ],
     });
     if (!note) {
-      throw new NotFoundException(
-        `Nota de crédito con ID ${id} no encontrada`,
-      );
+      throw new NotFoundException(`Nota de crédito con ID ${id} no encontrada`);
     }
     const invoice = note.invoice;
 
     const noteNumber = note.noteNumber;
     const isMock =
-      !noteNumber ||
-      noteNumber.startsWith('NC-PEND-') ||
-      !note.cude;
+      !noteNumber || noteNumber.startsWith('NC-PEND-') || !note.cude;
 
     if (!isMock) {
       try {

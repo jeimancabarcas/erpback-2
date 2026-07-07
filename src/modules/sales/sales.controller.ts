@@ -91,5 +91,4 @@ export class SalesController {
   downloadCreditNotePdf(@Param('id', ParseUUIDPipe) id: string) {
     return this.salesService.downloadAdjustmentNotePdf(id, 'Credit');
   }
-
 }

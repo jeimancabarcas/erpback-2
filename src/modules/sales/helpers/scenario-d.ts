@@ -57,8 +57,7 @@ export class ScenarioDHandler implements ScenarioHandler {
       );
 
       const unitPrice = Number(invoiceItem.product?.sellingPrice || 0);
-      const subtotal =
-        Number(invoiceItem.quantity) * unitPrice;
+      const subtotal = Number(invoiceItem.quantity) * unitPrice;
       totalAmount += subtotal;
 
       // Reverse ALL InvoiceItemTax amounts (full reversal — compute from Tax relation)
@@ -73,9 +72,7 @@ export class ScenarioDHandler implements ScenarioHandler {
           : unitPrice;
       const noteItemTaxes = invoiceItemTaxes.map((t) => {
         const taxRate = Number(t.tax?.percentage || 0);
-        const taxAmount = Number(
-          ((priceBeforeTax * taxRate) / 100).toFixed(2),
-        );
+        const taxAmount = Number(((priceBeforeTax * taxRate) / 100).toFixed(2));
         return {
           taxId: t.taxId,
           taxCode: t.tax?.code || '',
@@ -113,7 +110,10 @@ export class ScenarioDHandler implements ScenarioHandler {
             ? Math.round((unitPrice / (1 + totalTaxRate / 100)) * 100) / 100
             : unitPrice;
 
-        const taxMap = new Map<string, { code: string; rate: number; isExcluded: boolean }>();
+        const taxMap = new Map<
+          string,
+          { code: string; rate: number; isExcluded: boolean }
+        >();
         noteItemTaxes.forEach((t) => {
           const existing = taxMap.get(t.taxCode);
           if (existing) {

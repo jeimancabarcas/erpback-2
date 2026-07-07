@@ -29,6 +29,12 @@ export class InvoiceItemTax {
   @Column({ name: 'tax_id', nullable: true })
   taxId: string;
 
-  @Column({ name: 'tax_amount', type: 'decimal', precision: 12, scale: 2, default: 0 })
+  @Column({
+    name: 'tax_amount',
+    type: 'decimal',
+    precision: 12,
+    scale: 2,
+    default: 0,
+  })
   taxAmount: number;
 }

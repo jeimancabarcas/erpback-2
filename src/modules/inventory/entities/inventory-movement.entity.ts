@@ -56,7 +56,12 @@ export class InventoryMovement {
   @Column({ name: 'reference_type', type: 'varchar', length: 50 })
   referenceType: string;
 
-  @Column({ name: 'reference_id', type: 'varchar', length: 255, nullable: true })
+  @Column({
+    name: 'reference_id',
+    type: 'varchar',
+    length: 255,
+    nullable: true,
+  })
   referenceId: string | null;
 
   @Column({ type: 'jsonb', nullable: true })

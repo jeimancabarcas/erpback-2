@@ -21,7 +21,9 @@ export class FinanceService {
     private readonly queryGateway: any,
   ) {}
 
-  async getBills(query: QueryBillsDto): Promise<PaginatedResult<FinanceDocumentDto>> {
+  async getBills(
+    query: QueryBillsDto,
+  ): Promise<PaginatedResult<FinanceDocumentDto>> {
     const filters: BillQueryFilters = {
       identification: query.identification,
       names: query.names,
@@ -33,8 +35,9 @@ export class FinanceService {
       perPage: query.perPage ?? 10,
     };
 
-    const response: PaginatedFactusResponse<FactusBill> =
-      await (this.queryGateway as IFactusQueryGateway).listBills(filters);
+    const response: PaginatedFactusResponse<FactusBill> = await (
+      this.queryGateway as IFactusQueryGateway
+    ).listBills(filters);
 
     this.logger.log(`Received ${response.data?.length ?? 0} bills from Factus`);
     return this.mapToPaginatedResult(response, 'bill');
@@ -54,10 +57,13 @@ export class FinanceService {
       perPage: query.perPage ?? 10,
     };
 
-    const response: PaginatedFactusResponse<FactusCreditNote> =
-      await (this.queryGateway as IFactusQueryGateway).listCreditNotes(filters);
+    const response: PaginatedFactusResponse<FactusCreditNote> = await (
+      this.queryGateway as IFactusQueryGateway
+    ).listCreditNotes(filters);
 
-    this.logger.log(`Received ${response.data?.length ?? 0} credit notes from Factus`);
+    this.logger.log(
+      `Received ${response.data?.length ?? 0} credit notes from Factus`,
+    );
     return this.mapToPaginatedResult(response, 'credit-note');
   }
 

@@ -22,29 +22,38 @@ describe('FactusHttpQueryAdapter (Tasks 2.1-2.5)', () => {
     const status = opts.status || 200;
     const responseBody = opts.responseBody || {
       status: 'OK',
-      data: { data: [], pagination: { total: 0, current_page: 1, last_page: 0, per_page: 10 } },
+      data: {
+        data: [],
+        pagination: { total: 0, current_page: 1, last_page: 0, per_page: 10 },
+      },
     };
 
-    (global.fetch as jest.Mock) = jest.fn().mockImplementation(async (url: string) => {
-      capturedUrls.push(url);
-      if (!ok) {
+    (global.fetch as jest.Mock) = jest
+      .fn()
+      .mockImplementation(async (url: string) => {
+        capturedUrls.push(url);
+        if (!ok) {
+          return {
+            ok: false,
+            status,
+            statusText: opts.statusText || 'Error',
+            text: async () => JSON.stringify(responseBody),
+          };
+        }
         return {
-          ok: false,
-          status,
-          statusText: opts.statusText || 'Error',
-          text: async () => JSON.stringify(responseBody),
+          ok: true,
+          json: async () => responseBody,
         };
-      }
-      return {
-        ok: true,
-        json: async () => responseBody,
-      };
-    }) as jest.Mock;
+      });
   }
 
   async function createAdapter(): Promise<FactusHttpQueryAdapter> {
-    mockAuthGateway = { getAccessToken: jest.fn().mockResolvedValue('mock-token') };
-    mockConfigService = { get: jest.fn().mockReturnValue('https://api.factus.com') };
+    mockAuthGateway = {
+      getAccessToken: jest.fn().mockResolvedValue('mock-token'),
+    };
+    mockConfigService = {
+      get: jest.fn().mockReturnValue('https://api.factus.com'),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -101,7 +110,9 @@ describe('FactusHttpQueryAdapter (Tasks 2.1-2.5)', () => {
       expect(queryString).toContain('filter[names]=Juan%20Perez');
       expect(queryString).toContain('filter[number]=FAC-001');
       expect(queryString).toContain('filter[status]=1');
-      expect(queryString).toContain('filter[created_at][start_date]=2024-01-01');
+      expect(queryString).toContain(
+        'filter[created_at][start_date]=2024-01-01',
+      );
       expect(queryString).toContain('filter[created_at][end_date]=2024-12-31');
       expect(queryString).toContain('filter[per_page]=20');
       expect(queryString).toContain('page=2');
@@ -189,7 +200,10 @@ describe('FactusHttpQueryAdapter (Tasks 2.1-2.5)', () => {
     it('should return empty data array when Factus returns no results', async () => {
       const factusResponse = {
         status: 'OK',
-        data: { data: [], pagination: { total: 0, current_page: 1, last_page: 0, per_page: 10 } },
+        data: {
+          data: [],
+          pagination: { total: 0, current_page: 1, last_page: 0, per_page: 10 },
+        },
       };
 
       setupFetchMock({ responseBody: factusResponse });
@@ -230,9 +244,7 @@ describe('FactusHttpQueryAdapter (Tasks 2.1-2.5)', () => {
       });
       adapter = await createAdapter();
 
-      await expect(adapter.listCreditNotes({})).rejects.toThrow(
-        'HTTP 500',
-      );
+      await expect(adapter.listCreditNotes({})).rejects.toThrow('HTTP 500');
     });
   });
 });

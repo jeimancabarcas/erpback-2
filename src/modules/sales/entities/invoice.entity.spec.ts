@@ -16,15 +16,15 @@ describe('Invoice', () => {
     const inv = new Invoice();
     // totalAmount defaults to 0 via DB column default
     expect(inv.totalAmount).toBeUndefined(); // Not set yet — will get default from DB
-    inv.totalAmount = 250000.50;
-    expect(inv.totalAmount).toBe(250000.50);
+    inv.totalAmount = 250000.5;
+    expect(inv.totalAmount).toBe(250000.5);
   });
 
   it('should have subtotal with decimal default', () => {
     const inv = new Invoice();
     expect(inv.subtotal).toBeUndefined(); // Not set yet — will get default from DB
-    inv.subtotal = 210000.00;
-    expect(inv.subtotal).toBe(210000.00);
+    inv.subtotal = 210000.0;
+    expect(inv.subtotal).toBe(210000.0);
   });
 
   it('should allow setting totalAmount and subtotal together', () => {

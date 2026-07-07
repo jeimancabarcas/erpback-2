@@ -94,5 +94,3 @@ export class CreateElectronicBillDto {
   @Type(() => ElectronicBillPaymentDetailDto)
   paymentDetails?: ElectronicBillPaymentDetailDto[];
 }
-
-

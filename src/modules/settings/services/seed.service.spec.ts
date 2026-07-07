@@ -4,6 +4,7 @@ import { SeedService } from './seed.service';
 import { Tax } from '../entities/tax.entity';
 import { PaymentMethod } from '../entities/payment-method.entity';
 import { PaymentType } from '../entities/payment-type.entity';
+import { Municipality } from '../entities/municipality.entity';
 import { InventoryCategory } from '../../inventory/entities/inventory-category.entity';
 import { Product } from '../../inventory/entities/product.entity';
 
@@ -72,6 +73,9 @@ describe('SeedService', () => {
       expect(mockTransactionalEm.query).toHaveBeenCalledWith(
         `TRUNCATE TABLE "inventory_categories" CASCADE`,
       );
+      expect(mockTransactionalEm.query).toHaveBeenCalledWith(
+        `TRUNCATE TABLE "municipalities" CASCADE`,
+      );
     });
 
     it('should insert seed data for all entities', async () => {
@@ -113,6 +117,30 @@ describe('SeedService', () => {
       );
     });
 
+    it('should insert seed data for municipalities', async () => {
+      await service.seed();
+      expect(mockTransactionalEm.insert).toHaveBeenCalledWith(
+        Municipality,
+        expect.arrayContaining([
+          expect.objectContaining({
+            code: '11001',
+            name: 'Bogotá D.C.',
+            department: 'Bogotá D.C.',
+          }),
+          expect.objectContaining({
+            code: '05001',
+            name: 'Medellín',
+            department: 'Antioquia',
+          }),
+          expect.objectContaining({
+            code: '52001',
+            name: 'Pasto',
+            department: 'Nariño',
+          }),
+        ]),
+      );
+    });
+
     it('should return correct record counts', async () => {
       const result = await service.seed();
       expect(result).toEqual({
@@ -121,6 +149,7 @@ describe('SeedService', () => {
         paymentTypes: 2,
         categories: 10,
         products: 30,
+        municipalities: 10,
       });
     });
 

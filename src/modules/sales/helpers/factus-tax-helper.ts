@@ -28,10 +28,7 @@ export function computeFactusItemTaxes(
   unitPrice: number,
 ): FactusItemTaxComputation {
   const taxes = product?.taxes || [];
-  const totalTaxRate = taxes.reduce(
-    (sum, t) => sum + Number(t.percentage),
-    0,
-  );
+  const totalTaxRate = taxes.reduce((sum, t) => sum + Number(t.percentage), 0);
   const priceBeforeTax =
     totalTaxRate > 0
       ? Number((unitPrice / (1 + totalTaxRate / 100)).toFixed(2))

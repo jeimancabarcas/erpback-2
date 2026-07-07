@@ -138,10 +138,15 @@ export class PdfGenerationService {
       }
 
       doc.text(truncatedName, colX[0], doc.y, { width: colWidths[0] });
-      doc.text(String(item.quantity), colX[1], doc.y - doc.currentLineHeight(), {
-        width: colWidths[1],
-        align: 'center',
-      });
+      doc.text(
+        String(item.quantity),
+        colX[1],
+        doc.y - doc.currentLineHeight(),
+        {
+          width: colWidths[1],
+          align: 'center',
+        },
+      );
       doc.text(
         this.formatCurrency(item.unitPrice),
         colX[2],
@@ -193,19 +198,26 @@ export class PdfGenerationService {
         QUARTERLY: 'Trimestral',
         YEARLY: 'Anual',
       };
-      const label = frequencyLabels[receipt.paymentFrequency] || receipt.paymentFrequency;
+      const label =
+        frequencyLabels[receipt.paymentFrequency] || receipt.paymentFrequency;
       doc.text(`Plazo: ${label}`);
     }
 
     if (receipt.installments) {
-      doc.text(`${receipt.installments} cuota${receipt.installments !== 1 ? 's' : ''}`);
+      doc.text(
+        `${receipt.installments} cuota${receipt.installments !== 1 ? 's' : ''}`,
+      );
     }
 
     if (receipt.dueDate) {
       doc.text(`Vencimiento: ${this.formatDate(receipt.dueDate)}`);
     }
 
-    if (!receipt.paymentFrequency && !receipt.installments && !receipt.dueDate) {
+    if (
+      !receipt.paymentFrequency &&
+      !receipt.installments &&
+      !receipt.dueDate
+    ) {
       doc.fontSize(10).font('Helvetica').fillColor('#999999');
       doc.text('Sin condiciones de pago');
       doc.fillColor('#000000');
@@ -253,12 +265,10 @@ export class PdfGenerationService {
       doc.text(this.formatDate(payment.paymentDate), colX[0], rowY, {
         width: 120,
       });
-      doc.text(
-        this.formatCurrency(payment.amount),
-        colX[1],
-        rowY,
-        { width: 100, align: 'right' },
-      );
+      doc.text(this.formatCurrency(payment.amount), colX[1], rowY, {
+        width: 100,
+        align: 'right',
+      });
       doc.text(payment.notes || '-', colX[2], rowY, { width: 150 });
 
       if (payment.isCurrentPayment) {
@@ -287,21 +297,15 @@ export class PdfGenerationService {
     );
 
     doc.fontSize(10).font('Helvetica');
-    doc.text(
-      `Total Factura: ${this.formatCurrency(receipt.invoiceTotal)}`,
-    );
-    doc.text(
-      `Total Abonado: ${this.formatCurrency(totalPayments)}`,
-    );
+    doc.text(`Total Factura: ${this.formatCurrency(receipt.invoiceTotal)}`);
+    doc.text(`Total Abonado: ${this.formatCurrency(totalPayments)}`);
 
     doc.moveDown(0.3);
     doc.font('Helvetica-Bold').fontSize(11);
 
     if (receipt.remainingBalance <= 0) {
       doc.fillColor('#16a34a');
-      doc.text(
-        `Saldo Pendiente: ${this.formatCurrency(0)} — ¡Pagada!`,
-      );
+      doc.text(`Saldo Pendiente: ${this.formatCurrency(0)} — ¡Pagada!`);
       doc.fillColor('#000000');
     } else {
       doc.fillColor('#d97706');
@@ -441,7 +445,9 @@ export class PdfGenerationService {
         { width: colWidths[2], align: 'center' },
       );
       doc.text(
-        this.formatCurrency(Number(item.quantity) * Number(item.product?.sellingPrice || 0)),
+        this.formatCurrency(
+          Number(item.quantity) * Number(item.product?.sellingPrice || 0),
+        ),
         colX[3],
         doc.y - doc.currentLineHeight(),
         { width: colWidths[3], align: 'right' },
@@ -455,7 +461,8 @@ export class PdfGenerationService {
 
     doc.font('Helvetica-Bold');
     const totalAmount = (invoice.items ?? []).reduce(
-      (acc, item) => acc + Number(item.quantity) * Number(item.product?.sellingPrice || 0),
+      (acc, item) =>
+        acc + Number(item.quantity) * Number(item.product?.sellingPrice || 0),
       0,
     );
     doc.text('Total', colX[2], doc.y, { width: colWidths[2], align: 'center' });
@@ -540,7 +547,8 @@ export class PdfGenerationService {
     doc.moveDown(0.5);
 
     const originalTotal = (invoice.items ?? []).reduce(
-      (acc, item) => acc + Number(item.quantity) * Number(item.product?.sellingPrice || 0),
+      (acc, item) =>
+        acc + Number(item.quantity) * Number(item.product?.sellingPrice || 0),
       0,
     );
     const creditsTotal = creditNotes.reduce(

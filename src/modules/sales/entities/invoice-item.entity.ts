@@ -32,13 +32,25 @@ export class InvoiceItem {
   @Column({ type: 'int' })
   quantity: number;
 
-  @Column({ name: 'unit_price', type: 'decimal', precision: 12, scale: 2, default: 0 })
+  @Column({
+    name: 'unit_price',
+    type: 'decimal',
+    precision: 12,
+    scale: 2,
+    default: 0,
+  })
   unitPrice: number;
 
   @Column({ type: 'decimal', precision: 12, scale: 2, default: 0 })
   subtotal: number;
 
-  @Column({ name: 'tax_amount', type: 'decimal', precision: 12, scale: 2, default: 0 })
+  @Column({
+    name: 'tax_amount',
+    type: 'decimal',
+    precision: 12,
+    scale: 2,
+    default: 0,
+  })
   taxAmount: number;
 
   @OneToMany(() => InvoiceItemTax, (t) => t.invoiceItem, { cascade: true })

@@ -32,10 +32,7 @@ import { ScenarioDHandler } from './helpers/scenario-d';
     SettingsModule,
   ],
   controllers: [SalesController],
-  providers: [
-    SalesService,
-    ScenarioDHandler,
-  ],
+  providers: [SalesService, ScenarioDHandler],
   exports: [
     SalesService,
     TypeOrmModule.forFeature([InvoiceElectronicEmission]),

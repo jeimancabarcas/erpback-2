@@ -29,6 +29,18 @@ export class PurchaseOrderSupportDocument {
   @Column({ name: 'public_url', type: 'varchar', nullable: true })
   publicUrl: string | null;
 
+  @Column({ name: 'validated_at', type: 'varchar', nullable: true })
+  validatedAt: string | null;
+
+  @Column({ name: 'is_validated', type: 'boolean', default: false })
+  isValidated: boolean;
+
+  @Column({ type: 'jsonb', nullable: true })
+  errors: string[] | null;
+
+  @Column({ type: 'jsonb', nullable: true })
+  totals: Record<string, string | null> | null;
+
   @ManyToOne(() => PurchaseOrder, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'purchase_order_id' })
   purchaseOrder: PurchaseOrder;

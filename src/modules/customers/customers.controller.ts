@@ -79,7 +79,12 @@ export class CustomersController {
     @Query('page') page?: number,
     @Query('limit') limit?: number,
   ) {
-    return this.customersCreditService.getPaymentHistory(id, invoiceId, page, limit);
+    return this.customersCreditService.getPaymentHistory(
+      id,
+      invoiceId,
+      page,
+      limit,
+    );
   }
 
   @Get(':id/payments/:paymentId/receipt')
@@ -95,8 +100,12 @@ export class CustomersController {
     @Param('id', ParseUUIDPipe) id: string,
     @Param('paymentId', ParseUUIDPipe) paymentId: string,
   ) {
-    const receipt = await this.customersCreditService.getPaymentReceipt(id, paymentId);
-    const pdf = await this.pdfGenerationService.generatePaymentReceiptPdf(receipt);
+    const receipt = await this.customersCreditService.getPaymentReceipt(
+      id,
+      paymentId,
+    );
+    const pdf =
+      await this.pdfGenerationService.generatePaymentReceiptPdf(receipt);
     return { pdf };
   }
 

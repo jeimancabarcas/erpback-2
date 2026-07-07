@@ -109,7 +109,9 @@ describe('PdfGenerationService', () => {
   });
 
   it('includes correct balance formula values with credit notes only', async () => {
-    const invoice = makeInvoice({ items: [{ product: { sellingPrice: 500 }, quantity: 2, id: 'item-1' }] });
+    const invoice = makeInvoice({
+      items: [{ product: { sellingPrice: 500 }, quantity: 2, id: 'item-1' }],
+    });
     const creditNotes = [
       {
         id: 'cn-1',
@@ -172,7 +174,9 @@ describe('PdfGenerationService', () => {
   });
 
   describe('generatePaymentReceiptPdf', () => {
-    function makeReceiptDto(overrides: Partial<PaymentReceiptDto> = {}): PaymentReceiptDto {
+    function makeReceiptDto(
+      overrides: Partial<PaymentReceiptDto> = {},
+    ): PaymentReceiptDto {
       return {
         paymentId: 'pay-1',
         paymentAmount: 400000,
@@ -188,13 +192,41 @@ describe('PdfGenerationService', () => {
         paymentFrequency: null,
         dueDate: null,
         invoiceItems: [
-          { productName: 'Producto A', quantity: 2, unitPrice: 500, subtotal: 1000 },
-          { productName: 'Producto B', quantity: 3, unitPrice: 100, subtotal: 300 },
+          {
+            productName: 'Producto A',
+            quantity: 2,
+            unitPrice: 500,
+            subtotal: 1000,
+          },
+          {
+            productName: 'Producto B',
+            quantity: 3,
+            unitPrice: 100,
+            subtotal: 300,
+          },
         ],
         allInvoicePayments: [
-          { id: 'pay-2', amount: 300000, paymentDate: new Date('2026-07-01'), notes: null, isCurrentPayment: false },
-          { id: 'pay-1', amount: 400000, paymentDate: new Date('2026-06-15'), notes: 'Pago parcial quincena 1', isCurrentPayment: true },
-          { id: 'pay-3', amount: 300000, paymentDate: new Date('2026-06-01'), notes: null, isCurrentPayment: false },
+          {
+            id: 'pay-2',
+            amount: 300000,
+            paymentDate: new Date('2026-07-01'),
+            notes: null,
+            isCurrentPayment: false,
+          },
+          {
+            id: 'pay-1',
+            amount: 400000,
+            paymentDate: new Date('2026-06-15'),
+            notes: 'Pago parcial quincena 1',
+            isCurrentPayment: true,
+          },
+          {
+            id: 'pay-3',
+            amount: 300000,
+            paymentDate: new Date('2026-06-01'),
+            notes: null,
+            isCurrentPayment: false,
+          },
         ],
         remainingBalance: 600000,
         customerId: 'cust-1',
@@ -263,7 +295,9 @@ describe('PdfGenerationService', () => {
     });
 
     it('should contain payment notes section', async () => {
-      const receipt = makeReceiptDto({ paymentNotes: 'Pago parcial quincena 1' });
+      const receipt = makeReceiptDto({
+        paymentNotes: 'Pago parcial quincena 1',
+      });
       const result = await service.generatePaymentReceiptPdf(receipt, false);
 
       const decoded = Buffer.from(result, 'base64').toString('latin1');
@@ -328,7 +362,13 @@ describe('PdfGenerationService', () => {
         invoiceStatus: 'PAID',
         remainingBalance: 0,
         allInvoicePayments: [
-          { id: 'pay-1', amount: 1000000, paymentDate: new Date('2026-06-15'), notes: null, isCurrentPayment: true },
+          {
+            id: 'pay-1',
+            amount: 1000000,
+            paymentDate: new Date('2026-06-15'),
+            notes: null,
+            isCurrentPayment: true,
+          },
         ],
       });
       const result = await service.generatePaymentReceiptPdf(receipt, false);
