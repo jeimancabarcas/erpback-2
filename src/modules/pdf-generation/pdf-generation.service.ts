@@ -3,6 +3,7 @@ import { Injectable } from '@nestjs/common';
 const PDFDocument = require('pdfkit');
 import { Invoice } from '../sales/entities/invoice.entity';
 import { CreditNote } from '../sales/entities/credit-note.entity';
+import { PaymentReceiptDto } from '../customers/dto/payment-receipt.dto';
 
 @Injectable()
 export class PdfGenerationService {
@@ -33,6 +34,309 @@ export class PdfGenerationService {
 
       doc.end();
     });
+  }
+
+  generatePaymentReceiptPdf(
+    receipt: PaymentReceiptDto,
+    compress = true,
+  ): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const doc: PDFKit.PDFDocument = new PDFDocument({
+        margin: 50,
+        size: 'A4',
+        compress,
+      });
+      const buffers: Buffer[] = [];
+
+      doc.on('data', (chunk: Buffer) => buffers.push(chunk));
+      doc.on('end', () => {
+        const pdfBuffer = Buffer.concat(buffers);
+        resolve(pdfBuffer.toString('base64'));
+      });
+      doc.on('error', reject);
+
+      this.buildReceiptHeader(doc, receipt);
+      this.buildReceiptItemsTable(doc, receipt);
+      this.buildReceiptInstallments(doc, receipt);
+      this.buildReceiptPaymentHistory(doc, receipt);
+      this.buildReceiptSummary(doc, receipt);
+      this.buildReceiptNotes(doc, receipt);
+
+      doc.end();
+    });
+  }
+
+  private buildReceiptHeader(
+    doc: PDFKit.PDFDocument,
+    receipt: PaymentReceiptDto,
+  ): void {
+    doc.fontSize(18).font('Helvetica-Bold');
+    doc.text(`Recibo de Pago`, { align: 'center' });
+
+    doc.moveDown(0.5);
+    doc.fontSize(10).font('Helvetica');
+    doc.text(`Factura: ${receipt.invoiceNumber}`, { align: 'center' });
+    doc.text(`Fecha de emisión: ${this.formatDate(receipt.invoiceDate)}`, {
+      align: 'center',
+    });
+
+    doc.moveDown(0.3);
+    doc.text(
+      `Cliente: ${receipt.customerName}  |  Doc: ${receipt.customerDocument}`,
+      { align: 'center' },
+    );
+
+    doc.moveDown(1);
+    doc.moveTo(50, doc.y).lineTo(545, doc.y).stroke('#cccccc');
+    doc.moveDown(0.5);
+  }
+
+  private buildReceiptItemsTable(
+    doc: PDFKit.PDFDocument,
+    receipt: PaymentReceiptDto,
+  ): void {
+    doc.fontSize(12).font('Helvetica-Bold');
+    doc.text('Detalle de Factura', { underline: false });
+    doc.moveDown(0.3);
+
+    const colX = [50, 200, 300, 400, 480];
+    const colWidths = [150, 100, 100, 80, 65];
+
+    doc.fontSize(9).font('Helvetica-Bold');
+    const headerY = doc.y;
+    doc.text('Producto', colX[0], headerY, { width: colWidths[0] });
+    doc.text('Cantidad', colX[1], headerY, {
+      width: colWidths[1],
+      align: 'center',
+    });
+    doc.text('Precio Unit.', colX[2], headerY, {
+      width: colWidths[2],
+      align: 'center',
+    });
+    doc.text('Subtotal', colX[3], headerY, {
+      width: colWidths[3],
+      align: 'right',
+    });
+
+    doc.moveDown(0.2);
+    doc.moveTo(50, doc.y).lineTo(545, doc.y).stroke('#cccccc');
+    doc.moveDown(0.2);
+
+    const items = receipt.invoiceItems || [];
+    doc.fontSize(9).font('Helvetica');
+
+    for (const item of items) {
+      const rowY = doc.y;
+      const truncatedName =
+        item.productName.length > 30
+          ? item.productName.substring(0, 27) + '...'
+          : item.productName;
+
+      if (rowY > 700) {
+        doc.addPage();
+        doc.y = 50;
+      }
+
+      doc.text(truncatedName, colX[0], doc.y, { width: colWidths[0] });
+      doc.text(String(item.quantity), colX[1], doc.y - doc.currentLineHeight(), {
+        width: colWidths[1],
+        align: 'center',
+      });
+      doc.text(
+        this.formatCurrency(item.unitPrice),
+        colX[2],
+        doc.y - doc.currentLineHeight(),
+        { width: colWidths[2], align: 'center' },
+      );
+      doc.text(
+        this.formatCurrency(item.subtotal),
+        colX[3],
+        doc.y - doc.currentLineHeight(),
+        { width: colWidths[3], align: 'right' },
+      );
+      doc.moveDown(0.3);
+    }
+
+    doc.moveDown(0.2);
+    doc.moveTo(50, doc.y).lineTo(545, doc.y).stroke('#cccccc');
+    doc.moveDown(0.3);
+
+    doc.font('Helvetica-Bold');
+    const totalItems = items.reduce((acc, item) => acc + item.subtotal, 0);
+    doc.text('Total', colX[2], doc.y, { width: colWidths[2], align: 'center' });
+    doc.text(
+      this.formatCurrency(totalItems),
+      colX[3],
+      doc.y - doc.currentLineHeight(),
+      { width: colWidths[3], align: 'right' },
+    );
+
+    doc.moveDown(1.5);
+  }
+
+  private buildReceiptInstallments(
+    doc: PDFKit.PDFDocument,
+    receipt: PaymentReceiptDto,
+  ): void {
+    doc.fontSize(12).font('Helvetica-Bold');
+    doc.text('Plazo y Cuotas');
+    doc.moveDown(0.5);
+
+    doc.fontSize(9).font('Helvetica');
+
+    if (receipt.paymentFrequency) {
+      const frequencyLabels: Record<string, string> = {
+        DAILY: 'Diario',
+        WEEKLY: 'Semanal',
+        BIWEEKLY: 'Quincenal',
+        MONTHLY: 'Mensual',
+        QUARTERLY: 'Trimestral',
+        YEARLY: 'Anual',
+      };
+      const label = frequencyLabels[receipt.paymentFrequency] || receipt.paymentFrequency;
+      doc.text(`Plazo: ${label}`);
+    }
+
+    if (receipt.installments) {
+      doc.text(`${receipt.installments} cuota${receipt.installments !== 1 ? 's' : ''}`);
+    }
+
+    if (receipt.dueDate) {
+      doc.text(`Vencimiento: ${this.formatDate(receipt.dueDate)}`);
+    }
+
+    if (!receipt.paymentFrequency && !receipt.installments && !receipt.dueDate) {
+      doc.fontSize(10).font('Helvetica').fillColor('#999999');
+      doc.text('Sin condiciones de pago');
+      doc.fillColor('#000000');
+    }
+
+    doc.moveDown(1);
+  }
+
+  private buildReceiptPaymentHistory(
+    doc: PDFKit.PDFDocument,
+    receipt: PaymentReceiptDto,
+  ): void {
+    doc.fontSize(12).font('Helvetica-Bold');
+    doc.text('Historial de Abonos');
+    doc.moveDown(0.5);
+
+    const payments = receipt.allInvoicePayments || [];
+    if (payments.length === 0) {
+      doc.fontSize(10).font('Helvetica');
+      doc.text('No se registran abonos');
+      doc.moveDown(1.5);
+      return;
+    }
+
+    const colX = [50, 200, 300, 400, 480];
+    doc.fontSize(9).font('Helvetica-Bold');
+    const headerY = doc.y;
+    doc.text('Fecha', colX[0], headerY, { width: 120 });
+    doc.text('Monto', colX[1], headerY, { width: 100, align: 'right' });
+    doc.text('Notas', colX[2], headerY, { width: 150 });
+
+    doc.moveDown(0.2);
+    doc.moveTo(50, doc.y).lineTo(545, doc.y).stroke('#cccccc');
+    doc.moveDown(0.2);
+
+    for (const payment of payments) {
+      const rowY = doc.y;
+
+      if (rowY > 700) {
+        doc.addPage();
+        doc.y = 50;
+      }
+
+      doc.font('Helvetica').fontSize(9);
+      doc.text(this.formatDate(payment.paymentDate), colX[0], rowY, {
+        width: 120,
+      });
+      doc.text(
+        this.formatCurrency(payment.amount),
+        colX[1],
+        rowY,
+        { width: 100, align: 'right' },
+      );
+      doc.text(payment.notes || '-', colX[2], rowY, { width: 150 });
+
+      if (payment.isCurrentPayment) {
+        doc.moveDown(0.1);
+        doc.font('Helvetica-Bold').fontSize(8).fillColor('#2563eb');
+        doc.text('(Este recibo)', colX[0], doc.y, { width: 120 });
+        doc.fillColor('#000000');
+      }
+
+      doc.moveDown(0.5);
+    }
+
+    doc.moveDown(0.8);
+  }
+
+  private buildReceiptSummary(
+    doc: PDFKit.PDFDocument,
+    receipt: PaymentReceiptDto,
+  ): void {
+    doc.moveTo(50, doc.y).lineTo(545, doc.y).stroke('#cccccc');
+    doc.moveDown(0.5);
+
+    const totalPayments = (receipt.allInvoicePayments || []).reduce(
+      (sum, p) => sum + p.amount,
+      0,
+    );
+
+    doc.fontSize(10).font('Helvetica');
+    doc.text(
+      `Total Factura: ${this.formatCurrency(receipt.invoiceTotal)}`,
+    );
+    doc.text(
+      `Total Abonado: ${this.formatCurrency(totalPayments)}`,
+    );
+
+    doc.moveDown(0.3);
+    doc.font('Helvetica-Bold').fontSize(11);
+
+    if (receipt.remainingBalance <= 0) {
+      doc.fillColor('#16a34a');
+      doc.text(
+        `Saldo Pendiente: ${this.formatCurrency(0)} — ¡Pagada!`,
+      );
+      doc.fillColor('#000000');
+    } else {
+      doc.fillColor('#d97706');
+      doc.text(
+        `Saldo Pendiente: ${this.formatCurrency(receipt.remainingBalance)}`,
+      );
+      doc.fillColor('#000000');
+    }
+
+    doc.moveDown(1);
+  }
+
+  private buildReceiptNotes(
+    doc: PDFKit.PDFDocument,
+    receipt: PaymentReceiptDto,
+  ): void {
+    doc.fontSize(12).font('Helvetica-Bold');
+    doc.text('Notas del Pago');
+    doc.moveDown(0.5);
+
+    if (receipt.paymentNotes) {
+      doc.fontSize(10).font('Helvetica');
+      doc.text(receipt.paymentNotes);
+    } else {
+      doc.fontSize(10).font('Helvetica').fillColor('#999999');
+      doc.text('Sin notas');
+      doc.fillColor('#000000');
+    }
+
+    doc.moveDown(0.5);
+    doc.fontSize(8).font('Helvetica').fillColor('#999999');
+    doc.text(`Documento generado el: ${this.formatDate(new Date())}`, {
+      align: 'center',
+    });
+    doc.fillColor('#000000');
   }
 
   private formatCurrency(amount: number): string {

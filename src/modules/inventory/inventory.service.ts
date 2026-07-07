@@ -11,7 +11,10 @@ import { InventoryCategory } from './entities/inventory-category.entity';
 import { Product } from './entities/product.entity';
 import { Tax } from '../settings/entities/tax.entity';
 import { InventoryBatch } from './entities/inventory-batch.entity';
-import { InventoryMovement, MovementType } from './entities/inventory-movement.entity';
+import {
+  InventoryMovement,
+  MovementType,
+} from './entities/inventory-movement.entity';
 import { CreateInventoryCategoryDto } from './dto/create-inventory-category.dto';
 import { UpdateInventoryCategoryDto } from './dto/update-inventory-category.dto';
 import { QueryCategoriesDto } from './dto/query-categories.dto';
@@ -183,42 +186,46 @@ export class InventoryService {
     const product = this.productRepository.create(createDto);
 
     if (product.currentStock > 0) {
-      return await this.productRepository.manager.transaction(async (manager) => {
-        const productRepo = manager.getRepository(Product);
-        const savedProduct = await productRepo.save(product);
+      return await this.productRepository.manager.transaction(
+        async (manager) => {
+          const productRepo = manager.getRepository(Product);
+          const savedProduct = await productRepo.save(product);
 
-        if (createDto.taxIds?.length) {
-          const taxes = await manager.findBy(Tax, { id: In(createDto.taxIds) });
-          savedProduct.taxes = taxes;
-          await productRepo.save(savedProduct);
-        }
+          if (createDto.taxIds?.length) {
+            const taxes = await manager.findBy(Tax, {
+              id: In(createDto.taxIds),
+            });
+            savedProduct.taxes = taxes;
+            await productRepo.save(savedProduct);
+          }
 
-        const batchRepo = manager.getRepository(InventoryBatch);
-        const initialBatch = batchRepo.create({
-          productId: savedProduct.id,
-          initialQuantity: savedProduct.currentStock,
-          remainingQuantity: savedProduct.currentStock,
-          purchasePrice: 0,
-          adjustmentReason: 'Stock Inicial',
-          user,
-        });
-        await batchRepo.save(initialBatch);
-
-        await this.recordMovement(
-          {
-            product: savedProduct,
-            type: MovementType.IN,
-            quantity: savedProduct.currentStock,
-            origin: 'Stock Inicial',
-            destination: 'Almacén Principal',
-            referenceType: 'INITIAL_STOCK',
+          const batchRepo = manager.getRepository(InventoryBatch);
+          const initialBatch = batchRepo.create({
+            productId: savedProduct.id,
+            initialQuantity: savedProduct.currentStock,
+            remainingQuantity: savedProduct.currentStock,
+            purchasePrice: 0,
+            adjustmentReason: 'Stock Inicial',
             user,
-          },
-          manager,
-        );
+          });
+          await batchRepo.save(initialBatch);
 
-        return savedProduct;
-      });
+          await this.recordMovement(
+            {
+              product: savedProduct,
+              type: MovementType.IN,
+              quantity: savedProduct.currentStock,
+              origin: 'Stock Inicial',
+              destination: 'Almacén Principal',
+              referenceType: 'INITIAL_STOCK',
+              user,
+            },
+            manager,
+          );
+
+          return savedProduct;
+        },
+      );
     }
 
     const savedProduct = await this.productRepository.save(product);
@@ -417,14 +424,17 @@ export class InventoryService {
     price: number,
     purchaseOrderId?: string,
     user?: User,
+    manager?: EntityManager,
   ): Promise<Product> {
-    return this.productRepository.manager.transaction(async (manager) => {
-      const productRepo = manager.getRepository(Product);
-      const batchRepo = manager.getRepository(InventoryBatch);
+    const doWork = async (em: EntityManager) => {
+      const productRepo = em.getRepository(Product);
+      const batchRepo = em.getRepository(InventoryBatch);
 
       const product = await productRepo.findOne({ where: { id: productId } });
       if (!product) {
-        throw new NotFoundException(`Producto con ID ${productId} no encontrado`);
+        throw new NotFoundException(
+          `Producto con ID ${productId} no encontrado`,
+        );
       }
 
       const batch = batchRepo.create({
@@ -439,7 +449,7 @@ export class InventoryService {
       product.currentStock = Number(product.currentStock) + Number(quantity);
       await productRepo.save(product);
 
-      await this.recalculateAveragePrice(productId, manager);
+      await this.recalculateAveragePrice(productId, em);
 
       const isPurchase = !!purchaseOrderId;
       await this.recordMovement(
@@ -448,16 +458,27 @@ export class InventoryService {
           type: MovementType.IN,
           quantity,
           origin: isPurchase ? 'Proveedor (Compra)' : 'Ajuste de inventario',
-          destination: isPurchase ? 'Almacén Principal' : 'Ajuste de inventario',
+          destination: isPurchase
+            ? 'Almacén Principal'
+            : 'Ajuste de inventario',
           referenceType: isPurchase ? 'PURCHASE_ORDER' : 'MANUAL_ADJUSTMENT',
           referenceId: purchaseOrderId,
           user,
         },
-        manager,
+        em,
       );
 
-      return productRepo.findOne({ where: { id: productId }, relations: ['category', 'taxes'] }) as Promise<Product>;
-    });
+      return productRepo.findOne({
+        where: { id: productId },
+        relations: ['category', 'taxes'],
+      }) as Promise<Product>;
+    };
+
+    if (manager) {
+      return doWork(manager);
+    }
+
+    return this.productRepository.manager.transaction(async (em) => doWork(em));
   }
 
   async consumeStock(
@@ -607,8 +628,12 @@ export class InventoryService {
         product,
         type: MovementType.IN,
         quantity,
-        origin: isCreditNote ? 'Cliente Final (Devolución)' : 'Ajuste de inventario',
-        destination: isCreditNote ? 'Almacén Principal' : 'Ajuste de inventario',
+        origin: isCreditNote
+          ? 'Cliente Final (Devolución)'
+          : 'Ajuste de inventario',
+        destination: isCreditNote
+          ? 'Almacén Principal'
+          : 'Ajuste de inventario',
         referenceType: context?.referenceType ?? 'UNKNOWN',
         referenceId: context?.referenceId,
         user: context?.user,

@@ -6,9 +6,13 @@ import { CustomersService } from './customers.service';
 import { CustomersCreditService } from './customers-credit.service';
 import { CustomersController } from './customers.controller';
 import { Invoice } from '../sales/entities/invoice.entity';
+import { PdfGenerationModule } from '../pdf-generation/pdf-generation.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Customer, Invoice, PaymentRecord])],
+  imports: [
+    TypeOrmModule.forFeature([Customer, Invoice, PaymentRecord]),
+    PdfGenerationModule,
+  ],
   controllers: [CustomersController],
   providers: [CustomersService, CustomersCreditService],
   exports: [CustomersService, CustomersCreditService],

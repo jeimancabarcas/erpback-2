@@ -11,14 +11,6 @@ import {
 import { Supplier } from '../../suppliers/entities/supplier.entity';
 import { PurchaseOrderItem } from './purchase-order-item.entity';
 
-export enum PurchaseOrderStatus {
-  DRAFT = 'DRAFT',
-  SENT = 'SENT',
-  IN_TRANSIT = 'IN_TRANSIT',
-  COMPLETED = 'COMPLETED',
-  CANCELLED = 'CANCELLED',
-}
-
 @Entity('purchase_orders')
 export class PurchaseOrder {
   @PrimaryGeneratedColumn('uuid')
@@ -33,12 +25,8 @@ export class PurchaseOrder {
   @Column({ type: 'text', nullable: true })
   observations: string | null;
 
-  @Column({
-    type: 'enum',
-    enum: PurchaseOrderStatus,
-    default: PurchaseOrderStatus.DRAFT,
-  })
-  status: PurchaseOrderStatus;
+  @Column({ type: 'varchar', default: 'PLACED' })
+  status: string;
 
   @ManyToOne(() => Supplier, { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'supplier_id' })
@@ -51,9 +39,6 @@ export class PurchaseOrder {
     cascade: true,
   })
   items: PurchaseOrderItem[];
-
-  @Column({ type: 'text', name: 'receipt_url', nullable: true })
-  receiptUrl: string | null;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

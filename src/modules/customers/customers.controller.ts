@@ -17,6 +17,7 @@ import { UpdateCustomerDto } from './dto/update-customer.dto';
 import { QueryCustomersDto } from './dto/query-customers.dto';
 import { CustomerCreditDto } from './dto/customer-credit.dto';
 import { RecordPaymentDto } from './dto/record-payment.dto';
+import { PdfGenerationService } from '../pdf-generation/pdf-generation.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @Controller('customers')
@@ -25,6 +26,7 @@ export class CustomersController {
   constructor(
     private readonly customersService: CustomersService,
     private readonly customersCreditService: CustomersCreditService,
+    private readonly pdfGenerationService: PdfGenerationService,
   ) {}
 
   @Post()
@@ -78,6 +80,24 @@ export class CustomersController {
     @Query('limit') limit?: number,
   ) {
     return this.customersCreditService.getPaymentHistory(id, invoiceId, page, limit);
+  }
+
+  @Get(':id/payments/:paymentId/receipt')
+  getPaymentReceipt(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('paymentId', ParseUUIDPipe) paymentId: string,
+  ) {
+    return this.customersCreditService.getPaymentReceipt(id, paymentId);
+  }
+
+  @Get(':id/payments/:paymentId/receipt/pdf')
+  async getPaymentReceiptPdf(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('paymentId', ParseUUIDPipe) paymentId: string,
+  ) {
+    const receipt = await this.customersCreditService.getPaymentReceipt(id, paymentId);
+    const pdf = await this.pdfGenerationService.generatePaymentReceiptPdf(receipt);
+    return { pdf };
   }
 
   @Patch(':id')

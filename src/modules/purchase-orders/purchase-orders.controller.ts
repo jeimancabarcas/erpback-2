@@ -7,14 +7,13 @@ import {
   Param,
   Delete,
   Query,
-  Req,
   UseGuards,
   ParseUUIDPipe,
 } from '@nestjs/common';
 import { PurchaseOrdersService } from './purchase-orders.service';
 import { CreatePurchaseOrderDto } from './dto/create-purchase-order.dto';
+import { UpdatePurchaseOrderDto } from './dto/update-purchase-order.dto';
 import { QueryPurchaseOrdersDto } from './dto/query-purchase-orders.dto';
-import { UpdatePurchaseOrderStatusDto } from './dto/update-purchase-order-status.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @Controller('purchase-orders')
@@ -40,18 +39,9 @@ export class PurchaseOrdersController {
   @Patch(':id')
   update(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() updateDto: CreatePurchaseOrderDto,
+    @Body() updateDto: UpdatePurchaseOrderDto,
   ) {
     return this.purchaseOrdersService.update(id, updateDto);
-  }
-
-  @Patch(':id/status')
-  updateStatus(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body() updateStatusDto: UpdatePurchaseOrderStatusDto,
-    @Req() req: any,
-  ) {
-    return this.purchaseOrdersService.updateStatus(id, updateStatusDto, req.user);
   }
 
   @Delete(':id')

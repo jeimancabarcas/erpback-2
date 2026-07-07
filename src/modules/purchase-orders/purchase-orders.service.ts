@@ -5,18 +5,14 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import {
-  PurchaseOrder,
-  PurchaseOrderStatus,
-} from './entities/purchase-order.entity';
+import { PurchaseOrder } from './entities/purchase-order.entity';
 import { PurchaseOrderItem } from './entities/purchase-order-item.entity';
 import { CreatePurchaseOrderDto } from './dto/create-purchase-order.dto';
+import { UpdatePurchaseOrderDto } from './dto/update-purchase-order.dto';
 import { QueryPurchaseOrdersDto } from './dto/query-purchase-orders.dto';
-import { UpdatePurchaseOrderStatusDto } from './dto/update-purchase-order-status.dto';
 import { PaginatedResult } from '../../common/interfaces/paginated-result.interface';
 import { buildWhere } from '../../common/helpers/query.helper';
 import { InventoryService } from '../inventory/inventory.service';
-import { User } from '../users/entities/user.entity';
 
 @Injectable()
 export class PurchaseOrdersService {
@@ -35,44 +31,59 @@ export class PurchaseOrdersService {
       );
     }
 
-    // Generar número de orden (OC-0001, etc)
-    const count = await this.purchaseOrderRepository.count();
-    const orderNumber = `OC-${(count + 1).toString().padStart(4, '0')}`;
+    return this.purchaseOrderRepository.manager.transaction(async (manager) => {
+      const orderRepo = manager.getRepository(PurchaseOrder);
 
-    const purchaseOrder = this.purchaseOrderRepository.create({
-      ...createDto,
-      orderNumber,
-      status: PurchaseOrderStatus.DRAFT,
+      // Generate order number (OC-0001, etc)
+      const count = await orderRepo.count();
+      const orderNumber = `OC-${(count + 1).toString().padStart(4, '0')}`;
+
+      const purchaseOrder = orderRepo.create({
+        supplierId: createDto.supplierId,
+        orderDate: new Date(createDto.orderDate),
+        observations: createDto.observations ?? null,
+        orderNumber,
+        items: createDto.items.map((item) => ({
+          productId: item.productId,
+          quantity: item.quantity,
+          price: item.price,
+        })),
+      });
+
+      const savedOrder = await orderRepo.save(purchaseOrder);
+
+      // Update stock for each item within the same transaction
+      for (const item of savedOrder.items) {
+        await this.inventoryService.updateStock(
+          item.productId,
+          item.quantity,
+          item.price,
+          savedOrder.id,
+          undefined,
+          manager,
+        );
+      }
+
+      // Reload with relations for the response
+      return orderRepo.findOne({
+        where: { id: savedOrder.id },
+        relations: ['supplier', 'items', 'items.product'],
+      }) as Promise<PurchaseOrder>;
     });
-
-    return this.purchaseOrderRepository.save(purchaseOrder);
   }
 
   async update(
     id: string,
-    updateDto: CreatePurchaseOrderDto,
+    updateDto: UpdatePurchaseOrderDto,
   ): Promise<PurchaseOrder> {
     const order = await this.findOne(id);
 
-    if (order.status !== PurchaseOrderStatus.DRAFT) {
-      throw new BadRequestException(
-        'Solo se pueden editar órdenes en estado BORRADOR',
-      );
+    if (updateDto.orderDate !== undefined) {
+      order.orderDate = new Date(updateDto.orderDate);
     }
-
-    // Actualizar campos básicos
-    order.supplierId = updateDto.supplierId;
-    order.orderDate = new Date(updateDto.orderDate);
-    order.observations = updateDto.observations ?? null;
-
-    // Limpiar items anteriores mediante delete directo para evitar errores de orphanRemoval
-    await this.purchaseOrderItemRepository.delete({ purchaseOrderId: id });
-
-    // Asignamos los nuevos items
-    order.items = updateDto.items.map((item) => ({
-      ...item,
-      purchaseOrderId: id,
-    })) as any;
+    if (updateDto.observations !== undefined) {
+      order.observations = updateDto.observations;
+    }
 
     return this.purchaseOrderRepository.save(order);
   }
@@ -88,7 +99,7 @@ export class PurchaseOrdersService {
     } = queryDto;
     const skip = (page - 1) * limit;
 
-    const where = buildWhere(queryDto, [], ['status', 'supplierId']);
+    const where = buildWhere(queryDto, [], ['supplierId']);
 
     const [data, total] = await this.purchaseOrderRepository.findAndCount({
       where,
@@ -122,49 +133,36 @@ export class PurchaseOrdersService {
     return order;
   }
 
-  async updateStatus(
-    id: string,
-    updateStatusDto: UpdatePurchaseOrderStatusDto,
-    user?: User,
-  ): Promise<PurchaseOrder> {
-    const order = await this.findOne(id);
-    const previousStatus = order.status;
+  async remove(id: string): Promise<void> {
+    await this.purchaseOrderRepository.manager.transaction(async (manager) => {
+      const orderRepo = manager.getRepository(PurchaseOrder);
 
-    order.status = updateStatusDto.status;
-    if (updateStatusDto.receiptUrl) {
-      order.receiptUrl = updateStatusDto.receiptUrl;
-    }
+      const order = await orderRepo.findOne({
+        where: { id },
+        relations: ['items'],
+      });
 
-    const savedOrder = await this.purchaseOrderRepository.save(order);
-
-    // If changing to COMPLETED for the first time, update stock
-    if (
-      updateStatusDto.status === PurchaseOrderStatus.COMPLETED &&
-      previousStatus !== PurchaseOrderStatus.COMPLETED
-    ) {
-      for (const item of order.items) {
-        await this.inventoryService.updateStock(
-          item.productId,
-          item.quantity,
-          item.price,
-          order.id,
-          user,
+      if (!order) {
+        throw new NotFoundException(
+          `Orden de compra con ID ${id} no encontrada`,
         );
       }
-    }
 
-    return savedOrder;
-  }
+      // Reverse stock for each item using consumeStock
+      for (const item of order.items) {
+        await this.inventoryService.consumeStock(
+          item.productId,
+          item.quantity,
+          manager,
+          {
+            referenceType: 'PURCHASE_ORDER_REVERSAL',
+            referenceId: order.id,
+          },
+        );
+      }
 
-  async remove(id: string): Promise<void> {
-    const order = await this.findOne(id);
-
-    if (order.status !== PurchaseOrderStatus.DRAFT) {
-      throw new BadRequestException(
-        'Solo se pueden eliminar órdenes en estado BORRADOR',
-      );
-    }
-
-    await this.purchaseOrderRepository.remove(order);
+      // Delete the purchase order (items cascade)
+      await orderRepo.remove(order);
+    });
   }
 }

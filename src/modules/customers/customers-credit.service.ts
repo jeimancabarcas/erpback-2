@@ -12,6 +12,11 @@ import { CustomerCreditDto } from './dto/customer-credit.dto';
 import { RecordPaymentDto } from './dto/record-payment.dto';
 import { CreditPortfolioResponseDto } from './dto/credit-portfolio-response.dto';
 import { PaymentRecordDto } from './dto/payment-record.dto';
+import {
+  PaymentReceiptDto,
+  PaymentReceiptItemDto,
+  PaymentReceiptPaymentDto,
+} from './dto/payment-receipt.dto';
 
 @Injectable()
 export class CustomersCreditService {
@@ -224,6 +229,113 @@ export class CustomersCreditService {
         lastPage: Math.ceil(total / limit),
         limit,
       },
+    };
+  }
+
+  async getPaymentReceipt(
+    customerId: string,
+    paymentId: string,
+  ): Promise<PaymentReceiptDto> {
+    const customer = await this.customerRepository.findOne({
+      where: { id: customerId },
+    });
+
+    if (!customer) {
+      throw new NotFoundException(
+        `Cliente con ID ${customerId} no encontrado`,
+      );
+    }
+
+    const paymentRecord = await this.paymentRecordRepository.findOne({
+      where: { id: paymentId, customerId },
+      relations: [
+        'invoice',
+        'invoice.items',
+        'invoice.items.product',
+        'invoice.creditNotes',
+        'invoice.customer',
+      ],
+    });
+
+    if (!paymentRecord) {
+      throw new NotFoundException(
+        `Pago con ID ${paymentId} no encontrado`,
+      );
+    }
+
+    const invoice = paymentRecord.invoice;
+
+    // Find all payments for this invoice (for remaining balance and history)
+    const allPayments = await this.paymentRecordRepository.find({
+      where: { invoiceId: invoice.id },
+      order: { paymentDate: 'DESC' },
+    });
+
+    // Compute remainingBalance
+    const invoiceTotal = Number(invoice.totalAmount);
+    const totalPayments = allPayments.reduce(
+      (sum, p) => sum + Number(p.amount),
+      0,
+    );
+    const totalCreditNotes = (invoice.creditNotes ?? []).reduce(
+      (sum, cn) => sum + Number(cn.amount),
+      0,
+    );
+
+    let remainingBalance: number;
+    if (invoice.status === InvoiceStatus.CANCELLED) {
+      remainingBalance = 0;
+    } else {
+      remainingBalance = Math.max(
+        0,
+        invoiceTotal - totalPayments - totalCreditNotes,
+      );
+    }
+
+    // Build DTO
+    const prefix = invoice.emission ? 'FAC' : 'MAN';
+    const invoiceNumber = `${prefix}-${String(invoice.sequentialNumber).padStart(6, '0')}`;
+
+    const invoiceItems: PaymentReceiptItemDto[] = (invoice.items ?? []).map(
+      (item) => ({
+        productName: item.product?.name || 'Producto',
+        quantity: Number(item.quantity),
+        unitPrice: Number(item.unitPrice),
+        subtotal: Number(item.subtotal),
+      }),
+    );
+
+    const allInvoicePayments: PaymentReceiptPaymentDto[] = allPayments.map(
+      (p) => ({
+        id: p.id,
+        amount: Number(p.amount),
+        paymentDate: p.paymentDate,
+        notes: p.notes,
+        isCurrentPayment: p.id === paymentId,
+      }),
+    );
+
+    return {
+      paymentId: paymentRecord.id,
+      paymentAmount: Number(paymentRecord.amount),
+      paymentDate: paymentRecord.paymentDate,
+      paymentNotes: paymentRecord.notes,
+      invoiceId: invoice.id,
+      invoiceNumber,
+      invoiceStatus: invoice.status,
+      invoiceTotal,
+      invoiceSubtotal: Number(invoice.subtotal),
+      invoiceDate: invoice.date,
+      invoiceItems,
+      allInvoicePayments,
+      installments: invoice.installments ?? null,
+      paymentFrequency: invoice.paymentFrequency ?? null,
+      dueDate: invoice.dueDate ?? null,
+      remainingBalance,
+      customerId: invoice.customer?.id || customerId,
+      customerName: invoice.customer?.name || customer.name,
+      customerDocument:
+        invoice.customer?.documentNumber || customer.documentNumber,
     };
   }
 }
