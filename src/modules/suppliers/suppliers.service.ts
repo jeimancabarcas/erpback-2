@@ -4,7 +4,7 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, ILike, FindOptionsWhere } from 'typeorm';
 import { Supplier } from './entities/supplier.entity';
 import { CreateSupplierDto } from './dto/create-supplier.dto';
 import { UpdateSupplierDto } from './dto/update-supplier.dto';
@@ -38,7 +38,17 @@ export class SuppliersService {
     const { page = 1, limit = 10, sortBy = 'name', order = 'ASC' } = queryDto;
     const skip = (page - 1) * limit;
 
-    const where = buildWhere(queryDto, ['name', 'nit', 'email']);
+    let where: FindOptionsWhere<Supplier> | FindOptionsWhere<Supplier>[];
+    if (queryDto.search) {
+      const searchVal = `%${queryDto.search}%`;
+      where = [
+        { name: ILike(searchVal) },
+        { nit: ILike(searchVal) },
+        { email: ILike(searchVal) },
+      ];
+    } else {
+      where = buildWhere(queryDto, ['name', 'nit', 'email']) as FindOptionsWhere<Supplier>;
+    }
 
     const [data, total] = await this.supplierRepository.findAndCount({
       where,

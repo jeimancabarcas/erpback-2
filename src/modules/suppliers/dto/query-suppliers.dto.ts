@@ -13,4 +13,8 @@ export class QuerySuppliersDto extends PaginationDto {
   @IsOptional()
   @IsString()
   email?: string;
+
+  @IsOptional()
+  @IsString()
+  search?: string;
 }
