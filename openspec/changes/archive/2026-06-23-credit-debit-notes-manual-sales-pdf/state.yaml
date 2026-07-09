@@ -1,9 +1,0 @@
-phases:
-  explore: completed
-  propose: completed
-  spec: completed
-  design: completed
-  tasks: completed
-  apply: completed
-  verify: completed
-next_phase: archive

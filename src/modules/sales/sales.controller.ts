@@ -14,6 +14,7 @@ import { SalesService } from './sales.service';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { QueryInvoicesDto } from './dto/query-invoices.dto';
 import { CreateSalesNoteDto } from './dto/create-sales-note.dto';
+import { TopProductsQueryDto } from './dto/top-products-query.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @Controller('sales')
@@ -24,6 +25,16 @@ export class SalesController {
   @Get('stats/financial')
   getFinancialStats() {
     return this.salesService.getFinancialStats();
+  }
+
+  @Get('stats/top-products')
+  getTopProducts(@Query() query: TopProductsQueryDto) {
+    return this.salesService.getTopProducts(query);
+  }
+
+  @Get('stats/bottom-products')
+  getBottomProducts(@Query() query: TopProductsQueryDto) {
+    return this.salesService.getBottomProducts(query);
   }
 
   @Get('notes')

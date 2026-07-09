@@ -30,6 +30,7 @@ import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { QueryInvoicesDto } from './dto/query-invoices.dto';
 import { ManualInvoiceSearchResultDto } from './dto/manual-invoice-search-result.dto';
 import { CreateSalesNoteDto } from './dto/create-sales-note.dto';
+import { TopProductsQueryDto } from './dto/top-products-query.dto';
 import { InventoryService } from '../inventory/inventory.service';
 import { User } from '../users/entities/user.entity';
 import { PdfGenerationService } from '../pdf-generation/pdf-generation.service';
@@ -716,6 +717,86 @@ export class SalesService {
         trend: profitDiff >= 0 ? 'UP' : 'DOWN',
       },
     };
+  }
+
+  async getTopProducts(query: TopProductsQueryDto) {
+    const limit = query.limit ?? 5;
+    const now = new Date();
+    const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+    const lastDay = new Date(
+      now.getFullYear(),
+      now.getMonth() + 1,
+      0,
+      23,
+      59,
+      59,
+    );
+
+    return this.invoiceItemRepository
+      .createQueryBuilder('item')
+      .select('item.productId', 'productId')
+      .addSelect('product.name', 'productName')
+      .addSelect('SUM(item.quantity)', 'totalSold')
+      .addSelect('SUM(item.subtotal)', 'totalRevenue')
+      .leftJoin('item.invoice', 'invoice')
+      .leftJoin('item.product', 'product')
+      .where('invoice.date BETWEEN :firstDay AND :lastDay', {
+        firstDay,
+        lastDay,
+      })
+      .andWhere('invoice.status = :status', {
+        status: InvoiceStatus.PAID,
+      })
+      .groupBy('item.productId')
+      .addGroupBy('product.name')
+      .orderBy('SUM(item.subtotal)', 'DESC')
+      .limit(limit)
+      .getRawMany<{
+        productId: string;
+        productName: string;
+        totalSold: string;
+        totalRevenue: string;
+      }>();
+  }
+
+  async getBottomProducts(query: TopProductsQueryDto) {
+    const limit = query.limit ?? 5;
+    const now = new Date();
+    const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+    const lastDay = new Date(
+      now.getFullYear(),
+      now.getMonth() + 1,
+      0,
+      23,
+      59,
+      59,
+    );
+
+    return this.invoiceItemRepository
+      .createQueryBuilder('item')
+      .select('item.productId', 'productId')
+      .addSelect('product.name', 'productName')
+      .addSelect('SUM(item.quantity)', 'totalSold')
+      .addSelect('SUM(item.subtotal)', 'totalRevenue')
+      .leftJoin('item.invoice', 'invoice')
+      .leftJoin('item.product', 'product')
+      .where('invoice.date BETWEEN :firstDay AND :lastDay', {
+        firstDay,
+        lastDay,
+      })
+      .andWhere('invoice.status = :status', {
+        status: InvoiceStatus.PAID,
+      })
+      .groupBy('item.productId')
+      .addGroupBy('product.name')
+      .orderBy('SUM(item.subtotal)', 'ASC')
+      .limit(limit)
+      .getRawMany<{
+        productId: string;
+        productName: string;
+        totalSold: string;
+        totalRevenue: string;
+      }>();
   }
 
   /**
