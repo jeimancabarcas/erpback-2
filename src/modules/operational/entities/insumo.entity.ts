@@ -17,12 +17,6 @@ export class Insumo {
   @Column({ type: 'text', nullable: true })
   descripcion: string;
 
-  @Column()
-  unidadMedida: string;
-
-  @Column({ type: 'decimal', precision: 12, scale: 2, default: 0 })
-  stock: number;
-
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

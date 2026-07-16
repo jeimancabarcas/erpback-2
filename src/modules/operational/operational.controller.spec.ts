@@ -125,8 +125,6 @@ describe('OperationalController', () => {
     it('should POST create an insumo', async () => {
       const createDto: CreateInsumoDto = {
         nombre: 'Cemento',
-        unidadMedida: 'kg',
-        stock: 100,
       };
       const mockResult = { id: 'uuid-2', ...createDto };
 
@@ -159,8 +157,8 @@ describe('OperationalController', () => {
     });
 
     it('should PATCH update an insumo', async () => {
-      const updateDto: UpdateInsumoDto = { stock: 200 };
-      const mockResult = { id: 'uuid-2', stock: 200 };
+      const updateDto: UpdateInsumoDto = { nombre: 'Cemento Pro' };
+      const mockResult = { id: 'uuid-2', nombre: 'Cemento Pro' };
 
       mockOperationalService.updateInsumo.mockResolvedValue(mockResult);
 

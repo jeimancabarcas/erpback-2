@@ -260,8 +260,6 @@ describe('OperationalService', () => {
     it('should create an insumo', async () => {
       const createDto: CreateInsumoDto = {
         nombre: 'Cemento',
-        unidadMedida: 'kg',
-        stock: 100,
       };
 
       const mockInsumo = {
@@ -282,8 +280,6 @@ describe('OperationalService', () => {
     it('should throw ConflictException when insumo name already exists', async () => {
       const createDto: CreateInsumoDto = {
         nombre: 'Cemento',
-        unidadMedida: 'kg',
-        stock: 0,
       };
 
       mockInsumoRepository.findOne.mockResolvedValue({
@@ -330,7 +326,6 @@ describe('OperationalService', () => {
       const existing = {
         id: '550e8400-e29b-41d4-a716-446655440001',
         nombre: 'Cemento',
-        stock: 100,
       } as Insumo;
 
       mockInsumoRepository.findOne
@@ -339,14 +334,14 @@ describe('OperationalService', () => {
 
       mockInsumoRepository.save.mockResolvedValue({
         ...existing,
-        stock: 200,
+        nombre: 'Cemento actualizado',
       });
 
       const result = await service.updateInsumo('550e8400-e29b-41d4-a716-446655440001', {
-        stock: 200,
+        nombre: 'Cemento actualizado',
       });
 
-      expect(result.stock).toBe(200);
+      expect(result.nombre).toBe('Cemento actualizado');
     });
 
     it('should remove an insumo', async () => {
@@ -688,20 +683,15 @@ describe('OperationalService', () => {
     it('should validate CreateInsumoDto successfully', async () => {
       const dto = new CreateInsumoDto();
       dto.nombre = 'Cemento';
-      dto.unidadMedida = 'kg';
-      dto.stock = 100;
       const errors = await validate(dto);
       expect(errors.length).toBe(0);
     });
 
-    it('should fail CreateInsumoDto validation when stock is negative', async () => {
+    it('should fail CreateInsumoDto validation when nombre is missing', async () => {
       const dto = new CreateInsumoDto();
-      dto.nombre = 'Cemento';
-      dto.unidadMedida = 'kg';
-      dto.stock = -1;
       const errors = await validate(dto);
       expect(errors.length).toBeGreaterThan(0);
-      expect(errors[0].constraints).toHaveProperty('min');
+      expect(errors[0].constraints).toHaveProperty('isNotEmpty');
     });
 
     it('should validate CreateServicioDto successfully', async () => {
