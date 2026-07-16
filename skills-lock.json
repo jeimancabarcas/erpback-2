@@ -5,31 +5,31 @@
       "source": "wondelai/skills",
       "sourceType": "github",
       "skillPath": "clean-architecture/SKILL.md",
-      "computedHash": "df8076799cc198bfab130f1069cea4755c85fadcdc3c03463ee1c24e4ebbf399"
+      "computedHash": "91e3c122b6951e485b4eca773472708fc08b9bbb68247aa9c75c975df380630c"
     },
     "clean-code": {
       "source": "sickn33/antigravity-awesome-skills",
       "sourceType": "github",
       "skillPath": "skills/clean-code/SKILL.md",
-      "computedHash": "551e1ac1c416d9df11fce8bc613c3595794f1f5e634d20c5b3e257afded11ed7"
+      "computedHash": "74bf6ded4f61ddcb593e7a29beb96c284f888cbe0639ad6e23710447c36ff19a"
     },
     "hexagonal-architecture": {
       "source": "affaan-m/everything-claude-code",
       "sourceType": "github",
       "skillPath": "skills/hexagonal-architecture/SKILL.md",
-      "computedHash": "74bb41df595b6b2b70569fec4c63180a936254377d81f2d3d44aa3a0d2bd6d5d"
+      "computedHash": "423c177b1d49c286960da0d20f0788d57f5cbde3c0a8b706a0f99ba400c47dad"
     },
     "nestjs-best-practices": {
       "source": "kadajett/agent-nestjs-skills",
       "sourceType": "github",
       "skillPath": "SKILL.md",
-      "computedHash": "68658903272e1015f3ec5084c7d0988216a47f42f675ed819a675250fc6a23cd"
+      "computedHash": "1b6f82e889d19d305e38e35594de08eca0242321f353cafa4cf5e61dd3aa1a73"
     },
     "typeorm": {
       "source": "mindrally/skills",
       "sourceType": "github",
       "skillPath": "typeorm/SKILL.md",
-      "computedHash": "a4a4be3b9466db2c0729ec3e011647d6c791ed87ac35437fb699cd1b65b02e38"
+      "computedHash": "a78bf5815e02755d36eeda49e3e2e87b6e4e161cd90c6cbfb29dc447c4084b99"
     }
   }
 }

@@ -36,6 +36,11 @@ import { SettingsModule } from './modules/settings/settings.module';
 import { Tax } from './modules/settings/entities/tax.entity';
 import { PaymentMethod } from './modules/settings/entities/payment-method.entity';
 import { PaymentType } from './modules/settings/entities/payment-type.entity';
+import { OperationalModule } from './modules/operational/operational.module';
+import { Actividad } from './modules/operational/entities/actividad.entity';
+import { Insumo } from './modules/operational/entities/insumo.entity';
+import { Servicio } from './modules/operational/entities/servicio.entity';
+import { ServicioActividad } from './modules/operational/entities/servicio-actividad.entity';
 
 @Module({
   imports: [
@@ -77,6 +82,10 @@ import { PaymentType } from './modules/settings/entities/payment-type.entity';
           PurchaseOrderAdjustmentNote,
           PurchaseOrderAdjustmentNoteItem,
           PurchaseOrderAdjustmentNoteItemTax,
+          Actividad,
+          Insumo,
+          Servicio,
+          ServicioActividad,
         ],
         synchronize: true, // Only for development
       }),
@@ -92,6 +101,7 @@ import { PaymentType } from './modules/settings/entities/payment-type.entity';
     FinanceModule,
     PdfGenerationModule,
     SettingsModule,
+    OperationalModule,
   ],
 })
 export class AppModule {}
