@@ -20,6 +20,13 @@ import {
   ConflictException,
   NotFoundException,
 } from '@nestjs/common';
+import { ServicioProgramado, ServicioProgramadoEstado } from './entities/servicio-programado.entity';
+import { ServicioProgramadoInsumo } from './entities/servicio-programado-insumo.entity';
+import { Customer, CustomerStatus } from '../customers/entities/customer.entity';
+import { CreateProgramadoDto, CreateProgramadoInsumoDto } from './dto/create-programado.dto';
+import { ChangeStateDto } from './dto/change-state.dto';
+import { CancelDto } from './dto/cancel.dto';
+import { QueryProgramadosDto } from './dto/query-programados.dto';
 
 describe('OperationalService', () => {
   let service: OperationalService;
@@ -240,8 +247,8 @@ describe('OperationalService', () => {
 
       const reference = {
         id: 'pivot-id',
-        actividadId: '550e8400-e29b-41d4-a716-446655440000',
-      } as ServicioActividad;
+        actividad: { id: '550e8400-e29b-41d4-a716-446655440000' },
+      } as unknown as ServicioActividad;
 
       mockActividadRepository.findOne.mockResolvedValue(existing);
       mockServicioActividadRepository.findOne.mockResolvedValue(reference);
@@ -373,7 +380,9 @@ describe('OperationalService', () => {
       const mockServicio = {
         id: '550e8400-e29b-41d4-a716-446655440002',
         ...createDto,
-      } as Servicio;
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as unknown as Servicio;
 
       mockServicioRepository.findOne.mockResolvedValue(null);
       mockServicioRepository.create.mockReturnValue(mockServicio);
@@ -496,8 +505,6 @@ describe('OperationalService', () => {
       const createDto: CreateServicioActividadDto = {
         servicioId: '550e8400-e29b-41d4-a716-446655440002',
         actividadId: '550e8400-e29b-41d4-a716-446655440000',
-        cantidad: 2,
-        precio: 75,
       };
 
       mockServicioRepository.findOne.mockResolvedValue({ id: createDto.servicioId } as Servicio);
@@ -507,7 +514,9 @@ describe('OperationalService', () => {
       const mockPivot = {
         id: 'pivot-uuid',
         ...createDto,
-      } as ServicioActividad;
+        servicio: { id: createDto.servicioId },
+        actividad: { id: createDto.actividadId },
+      } as unknown as ServicioActividad;
 
       mockServicioActividadRepository.create.mockReturnValue(mockPivot);
       mockServicioActividadRepository.save.mockResolvedValue(mockPivot);
@@ -527,10 +536,8 @@ describe('OperationalService', () => {
       setupTransaction();
 
       const createDto: CreateServicioActividadDto = {
-        servicioId: 'nonexistent',
+        servicioId: '550e8400-e29b-41d4-a716-446655440002',
         actividadId: '550e8400-e29b-41d4-a716-446655440000',
-        cantidad: 2,
-        precio: 75,
       };
 
       mockServicioRepository.findOne.mockResolvedValue(null);
@@ -544,10 +551,8 @@ describe('OperationalService', () => {
       setupTransaction();
 
       const createDto: CreateServicioActividadDto = {
-        servicioId: '550e8400-e29b-41d4-a716-446655440002',
-        actividadId: 'nonexistent',
-        cantidad: 2,
-        precio: 75,
+        servicioId: 'nonexistent',
+        actividadId: '550e8400-e29b-41d4-a716-446655440000',
       };
 
       mockServicioRepository.findOne.mockResolvedValue({ id: createDto.servicioId } as Servicio);
@@ -564,8 +569,6 @@ describe('OperationalService', () => {
       const createDto: CreateServicioActividadDto = {
         servicioId: '550e8400-e29b-41d4-a716-446655440002',
         actividadId: '550e8400-e29b-41d4-a716-446655440000',
-        cantidad: 2,
-        precio: 75,
       };
 
       mockServicioRepository.findOne.mockResolvedValue({ id: createDto.servicioId } as Servicio);
@@ -583,12 +586,10 @@ describe('OperationalService', () => {
       const mockData = [
         {
           id: 'pivot-uuid',
-          cantidad: 2,
-          precio: 75,
-          servicio: { nombre: 'Plomería' },
-          actividad: { nombre: 'Instalación' },
+          servicio: { id: 'serv-1', nombre: 'Plomería' } as unknown as Servicio,
+          actividad: { id: 'act-1', nombre: 'Instalación' } as unknown as Actividad,
         },
-      ] as ServicioActividad[];
+      ] as unknown as ServicioActividad[];
 
       mockServicioActividadRepository.findAndCount.mockResolvedValue([mockData, 1]);
 
@@ -602,11 +603,9 @@ describe('OperationalService', () => {
     it('should find one servicio-actividad with relations', async () => {
       const mockPivot = {
         id: 'pivot-uuid',
-        cantidad: 2,
-        precio: 75,
-        servicio: { id: '550e8400-e29b-41d4-a716-446655440002', nombre: 'Plomería' },
-        actividad: { id: '550e8400-e29b-41d4-a716-446655440000', nombre: 'Instalación' },
-      } as ServicioActividad;
+        servicio: { id: '550e8400-e29b-41d4-a716-446655440002', nombre: 'Plomería', descripcion: '', precioBase: 0, createdAt: new Date(), updatedAt: new Date() } as unknown as Servicio,
+        actividad: { id: '550e8400-e29b-41d4-a716-446655440000', nombre: 'Instalación' } as unknown as Actividad,
+      } as unknown as ServicioActividad;
 
       mockServicioActividadRepository.findOne.mockResolvedValue(mockPivot);
 
@@ -628,29 +627,26 @@ describe('OperationalService', () => {
     it('should update a servicio-actividad', async () => {
       const existing = {
         id: 'pivot-uuid',
-        cantidad: 2,
-        precio: 75,
-      } as ServicioActividad;
+        servicio: { id: 'serv-1' } as unknown as Servicio,
+        actividad: { id: 'act-1' } as unknown as Actividad,
+      } as unknown as ServicioActividad;
 
       mockServicioActividadRepository.findOne.mockResolvedValue(existing);
       mockServicioActividadRepository.save.mockResolvedValue({
         ...existing,
-        cantidad: 5,
       });
 
-      const result = await service.updateServicioActividad('pivot-uuid', {
-        cantidad: 5,
-      });
+      const result = await service.updateServicioActividad('pivot-uuid', {});
 
-      expect(result.cantidad).toBe(5);
+      expect(result.id).toBe('pivot-uuid');
     });
 
     it('should remove a servicio-actividad', async () => {
       const existing = {
         id: 'pivot-uuid',
-        cantidad: 2,
-        precio: 75,
-      } as ServicioActividad;
+        servicio: { id: 'serv-1' } as unknown as Servicio,
+        actividad: { id: 'act-1' } as unknown as Actividad,
+      } as unknown as ServicioActividad;
 
       mockServicioActividadRepository.findOne.mockResolvedValue(existing);
       mockServicioActividadRepository.remove.mockResolvedValue(existing);
@@ -705,8 +701,7 @@ describe('OperationalService', () => {
     it('should validate CreateServicioActividadDto successfully', async () => {
       const dto = new CreateServicioActividadDto();
       dto.servicioId = '550e8400-e29b-41d4-a716-446655440000';
-      dto.cantidad = 2;
-      dto.precio = 75;
+      dto.actividadId = '550e8400-e29b-41d4-a716-446655440001';
       const errors = await validate(dto);
       expect(errors.length).toBe(0);
     });
@@ -715,11 +710,517 @@ describe('OperationalService', () => {
       const dto = new CreateServicioActividadDto();
       dto.servicioId = '550e8400-e29b-41d4-a716-446655440002';
       dto.actividadId = '550e8400-e29b-41d4-a716-446655440000';
-      dto.cantidad = 0;
-      dto.precio = 75;
       const errors = await validate(dto);
       expect(errors.length).toBeGreaterThan(0);
       expect(errors[0].constraints).toHaveProperty('min');
+    });
+
+    it('should validate ChangeStateDto successfully', async () => {
+      const dto = new ChangeStateDto();
+      dto.estado = 'INICIADO';
+      const errors = await validate(dto);
+      expect(errors.length).toBe(0);
+    });
+
+    it('should fail ChangeStateDto validation with invalid estado', async () => {
+      const dto = new ChangeStateDto();
+      dto.estado = 'INVALIDO';
+      const errors = await validate(dto);
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0].constraints).toHaveProperty('isIn');
+    });
+
+    it('should validate CancelDto successfully', async () => {
+      const dto = new CancelDto();
+      dto.motivo = 'Cliente solicitó cancelación';
+      const errors = await validate(dto);
+      expect(errors.length).toBe(0);
+    });
+
+    it('should fail CancelDto validation when motivo is missing', async () => {
+      const dto = new CancelDto();
+      const errors = await validate(dto);
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0].constraints).toHaveProperty('isNotEmpty');
+    });
+  });
+
+  // =========================================================================
+  // ServicioProgramado Tests
+  // =========================================================================
+
+  describe('ServicioProgramado', () => {
+    let mockCustomerRepository: any;
+    let mockServicioProgramadoRepository: any;
+    let mockServicioProgramadoInsumoRepository: any;
+    let testService: OperationalService;
+
+    beforeEach(async () => {
+      jest.resetAllMocks();
+
+      mockCustomerRepository = {
+        findOne: jest.fn(),
+        save: jest.fn(),
+      };
+
+      mockServicioProgramadoRepository = {
+        findOne: jest.fn(),
+        create: jest.fn(),
+        save: jest.fn(),
+        findAndCount: jest.fn(),
+        delete: jest.fn(),
+        manager: {
+          transaction: jest.fn(),
+          getRepository: jest.fn(),
+        },
+      };
+
+      mockServicioProgramadoInsumoRepository = {
+        create: jest.fn(),
+        save: jest.fn(),
+        delete: jest.fn(),
+      };
+
+      const module: TestingModule = await Test.createTestingModule({
+        providers: [
+          OperationalService,
+          {
+            provide: getRepositoryToken(Actividad),
+            useValue: mockActividadRepository,
+          },
+          {
+            provide: getRepositoryToken(Insumo),
+            useValue: mockInsumoRepository,
+          },
+          {
+            provide: getRepositoryToken(Servicio),
+            useValue: mockServicioRepository,
+          },
+          {
+            provide: getRepositoryToken(ServicioActividad),
+            useValue: mockServicioActividadRepository,
+          },
+          {
+            provide: getRepositoryToken(ServicioProgramado),
+            useValue: mockServicioProgramadoRepository,
+          },
+          {
+            provide: getRepositoryToken(ServicioProgramadoInsumo),
+            useValue: mockServicioProgramadoInsumoRepository,
+          },
+          {
+            provide: getRepositoryToken(Customer),
+            useValue: mockCustomerRepository,
+          },
+        ],
+      }).compile();
+
+      testService = module.get<OperationalService>(OperationalService);
+    });
+
+    it('should create a programado service with insumos and calculate dates', async () => {
+      const createDto: CreateProgramadoDto = {
+        customerId: '550e8400-e29b-41d4-a716-446655440200',
+        servicioId: '550e8400-e29b-41d4-a716-446655440201',
+        fechaInicioEstimada: '2026-01-12T08:00:00Z',
+        insumos: [{ insumoId: '550e8400-e29b-41d4-a716-446655440202', cantidad: 5 }],
+        notas: 'Notas de prueba',
+      };
+
+      const mockCustomer = {
+        id: createDto.customerId,
+        name: 'Cliente Test',
+        status: CustomerStatus.ACTIVE,
+      } as Customer;
+
+      const mockServicio = {
+        id: createDto.servicioId,
+        nombre: 'Servicio Test',
+        actividades: [
+          { actividad: { horasEstimadas: 8 } },
+          { actividad: { horasEstimadas: 8 } },
+        ],
+      } as any;
+
+      const savedProgramado = {
+        id: 'prog-uuid-001',
+        customer: mockCustomer,
+        servicio: mockServicio,
+        estado: ServicioProgramadoEstado.PENDIENTE,
+        fechaInicioEstimada: new Date('2026-01-12T08:00:00Z'),
+        fechaFinEstimada: new Date('2026-01-13T17:00:00Z'),
+        totalHoras: 16,
+        notas: 'Notas de prueba',
+        insumos: [],
+      };
+
+      const foundProgramado = {
+        ...savedProgramado,
+        insumos: [
+          {
+            id: 'pin-001',
+            servicioProgramado: { id: savedProgramado.id },
+            insumo: { id: createDto.insumos![0].insumoId },
+            cantidad: 5,
+          },
+        ],
+      } as ServicioProgramado;
+
+      mockCustomerRepository.findOne.mockResolvedValue(mockCustomer);
+      mockServicioRepository.findOne.mockResolvedValue(mockServicio);
+
+      const txManager = {
+        create: jest.fn((entity, data) => ({ ...data })),
+        save: jest.fn(async (entity, data) => {
+          if (entity === ServicioProgramado) {
+            return { id: 'prog-uuid-001' };
+          }
+          return { id: 'pin-001' };
+        }),
+        delete: jest.fn(),
+        getRepository: jest.fn(),
+      };
+
+      mockServicioProgramadoRepository.manager.transaction
+        .mockImplementationOnce(async (cb) => {
+          const result = await cb(txManager);
+          return result;
+        })
+        .mockImplementationOnce(async (cb) => {
+          const result = await cb({ ...txManager, findOne: jest.fn().mockResolvedValue(foundProgramado) });
+          return result;
+        });
+
+      mockServicioProgramadoRepository.findOne.mockResolvedValue(foundProgramado);
+
+      const result = await testService.createProgramado(createDto);
+
+      expect(result).toBeDefined();
+      expect(result.id).toBe('prog-uuid-001');
+      expect(result.estado).toBe(ServicioProgramadoEstado.PENDIENTE);
+      expect(result.totalHoras).toBe(16);
+      expect(result.fechaFinEstimada).toBeInstanceOf(Date);
+      expect(txManager.save).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ estado: ServicioProgramadoEstado.PENDIENTE })
+      );
+      expect(mockServicioProgramadoInsumoRepository.save).toHaveBeenCalled();
+    });
+
+    it('should throw NotFoundException when customer not found', async () => {
+      mockCustomerRepository.findOne.mockResolvedValue(null);
+
+      await expect(
+        testService.createProgramado({
+          customerId: 'nonexistent',
+          servicioId: 'serv-uuid',
+          fechaInicioEstimada: '2026-01-12T08:00:00Z',
+        }),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('should throw BadRequestException for inactive customer', async () => {
+      const inactiveCustomer = {
+        id: 'cust-123',
+        name: 'Cliente Inactivo',
+        status: CustomerStatus.INACTIVE,
+      } as Customer;
+
+      mockCustomerRepository.findOne.mockResolvedValue(inactiveCustomer);
+      mockServicioRepository.findOne.mockResolvedValue({
+        id: 'serv-uuid',
+        actividades: [],
+      } as any);
+
+      await expect(
+        testService.createProgramado({
+          customerId: 'cust-123',
+          servicioId: 'serv-uuid',
+          fechaInicioEstimada: '2026-01-12T08:00:00Z',
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should find all programados with pagination', async () => {
+      const mockData = [
+        {
+          id: 'prog-1',
+          customer: { id: 'cust-1', name: 'Cliente 1' } as Customer,
+          servicio: { id: 'serv-1', nombre: 'Servicio 1' } as Servicio,
+          estado: 'PENDIENTE',
+          fechaInicioEstimada: new Date(),
+          fechaFinEstimada: new Date(),
+          totalHoras: 8,
+          notas: '',
+          motivoEstado: '',
+          insumos: [],
+        },
+      ] as unknown as ServicioProgramado[];
+
+      mockServicioProgramadoRepository.findAndCount.mockResolvedValue([mockData, 1]);
+
+      const result = await testService.findAllProgramados({});
+
+      expect(result.data).toHaveLength(1);
+      expect(result.meta.total).toBe(1);
+      expect(result.meta.page).toBe(1);
+    });
+
+    it('should filter programados by date range', async () => {
+      const mockData = [
+        {
+          id: 'prog-1',
+          customer: { id: 'cust-1', name: 'Cliente 1' } as Customer,
+          servicio: { id: 'serv-1' } as Servicio,
+          fechaInicioEstimada: new Date('2026-01-15T10:00:00Z'),
+          fechaFinEstimada: new Date('2026-01-15T18:00:00Z'),
+          totalHoras: 8,
+          notas: '',
+          motivoEstado: '',
+          estado: 'PENDIENTE',
+          insumos: [],
+        },
+        {
+          id: 'prog-2',
+          customer: { id: 'cust-2', name: 'Cliente 2' } as Customer,
+          servicio: { id: 'serv-2' } as Servicio,
+          fechaInicioEstimada: new Date('2026-02-20T10:00:00Z'),
+          fechaFinEstimada: new Date('2026-02-20T18:00:00Z'),
+          totalHoras: 8,
+          notas: '',
+          motivoEstado: '',
+          estado: 'INICIADO',
+          insumos: [],
+        },
+      ] as unknown as ServicioProgramado[];
+
+      mockServicioProgramadoRepository.findAndCount.mockResolvedValue([mockData, 2]);
+
+      const result = await testService.findAllProgramados({
+        dateFrom: '2026-01-01',
+        dateTo: '2026-01-31',
+      });
+
+      // Only prog-1 should be in the date range
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].id).toBe('prog-1');
+    });
+
+    it('should filter programados by dateFrom only', async () => {
+      const mockData = [
+        {
+          id: 'prog-1',
+          customer: { id: 'cust-1', name: 'Cliente 1' } as Customer,
+          servicio: { id: 'serv-1' } as Servicio,
+          fechaInicioEstimada: new Date('2026-02-15T10:00:00Z'),
+          fechaFinEstimada: new Date('2026-02-15T18:00:00Z'),
+          totalHoras: 8,
+          notas: '',
+          motivoEstado: '',
+          estado: 'PENDIENTE',
+          insumos: [],
+        },
+      ] as unknown as ServicioProgramado[];
+
+      mockServicioProgramadoRepository.findAndCount.mockResolvedValue([mockData, 1]);
+
+      const result = await testService.findAllProgramados({
+        dateFrom: '2026-01-01',
+      });
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].id).toBe('prog-1');
+    });
+
+    it('should filter programados by dateTo only', async () => {
+      const mockData = [
+        {
+          id: 'prog-1',
+          customer: { id: 'cust-1', name: 'Cliente 1' } as Customer,
+          servicio: { id: 'serv-1' } as Servicio,
+          fechaInicioEstimada: new Date('2026-01-15T10:00:00Z'),
+          fechaFinEstimada: new Date('2026-01-15T18:00:00Z'),
+          totalHoras: 8,
+          notas: '',
+          motivoEstado: '',
+          estado: 'PENDIENTE',
+          insumos: [],
+        },
+      ] as unknown as ServicioProgramado[];
+
+      mockServicioProgramadoRepository.findAndCount.mockResolvedValue([mockData, 1]);
+
+      const result = await testService.findAllProgramados({
+        dateTo: '2026-12-31',
+      });
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].id).toBe('prog-1');
+    });
+
+    it('should find one programado with relations', async () => {
+      const mockProgramado = {
+        id: 'prog-uuid',
+        customer: { id: 'cust-1', name: 'Cliente 1' } as Customer,
+        servicio: { id: 'serv-1', nombre: 'Servicio 1' } as Servicio,
+        estado: 'PENDIENTE',
+        fechaInicioEstimada: new Date(),
+        fechaFinEstimada: new Date(),
+        totalHoras: 8,
+        notas: '',
+        motivoEstado: '',
+        insumos: [
+          { id: 'pin-1', insumo: { id: 'ins-1', nombre: 'Insumo 1' } } as any,
+        ],
+      } as unknown as ServicioProgramado;
+
+      mockServicioProgramadoRepository.findOne.mockResolvedValue(mockProgramado);
+
+      const result = await testService.findOneProgramado('prog-uuid');
+
+      expect(result).toEqual(mockProgramado);
+      expect(result.insumos).toHaveLength(1);
+    });
+
+    it('should throw NotFoundException when programado not found', async () => {
+      mockServicioProgramadoRepository.findOne.mockResolvedValue(null);
+
+      await expect(testService.findOneProgramado('nonexistent')).rejects.toThrow(NotFoundException);
+    });
+
+    it('should throw BadRequestException for invalid state transition', async () => {
+      const mockProgramado = {
+        id: 'prog-uuid',
+        estado: ServicioProgramadoEstado.FINALIZADO,
+        customer: { id: 'cust-1' } as Customer,
+        servicio: { actividades: [] } as unknown as Servicio,
+        fechaInicioEstimada: new Date(),
+        fechaFinEstimada: new Date(),
+        totalHoras: 0,
+        notas: '',
+        motivoEstado: '',
+        insumos: [],
+      } as unknown as ServicioProgramado;
+
+      mockServicioProgramadoRepository.findOne.mockResolvedValue(mockProgramado);
+
+      await expect(
+        testService.changeState('prog-uuid', { estado: 'INICIADO' }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw BadRequestException when motivo required for PAUSADO', async () => {
+      const mockProgramado = {
+        id: 'prog-uuid',
+        estado: ServicioProgramadoEstado.INICIADO,
+        customer: { id: 'cust-1' } as Customer,
+        servicio: { actividades: [] } as unknown as Servicio,
+        fechaInicioEstimada: new Date(),
+        fechaFinEstimada: new Date(),
+        totalHoras: 0,
+        notas: '',
+        motivoEstado: '',
+        insumos: [],
+      } as unknown as ServicioProgramado;
+
+      mockServicioProgramadoRepository.findOne.mockResolvedValue(mockProgramado);
+
+      await expect(
+        testService.changeState('prog-uuid', { estado: 'PAUSADO' }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should require motivo for CANCELADO transition', async () => {
+      const mockProgramado = {
+        id: 'prog-uuid',
+        estado: ServicioProgramadoEstado.PENDIENTE,
+        customer: { id: 'cust-1' } as Customer,
+        servicio: { actividades: [] } as unknown as Servicio,
+        fechaInicioEstimada: new Date(),
+        fechaFinEstimada: new Date(),
+        totalHoras: 0,
+        notas: '',
+        motivoEstado: '',
+        insumos: [],
+      } as unknown as ServicioProgramado;
+
+      mockServicioProgramadoRepository.findOne.mockResolvedValue(mockProgramado);
+
+      await expect(
+        testService.changeState('prog-uuid', { estado: 'CANCELADO' }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw BadRequestException when canceling already cancelled service', async () => {
+      const mockProgramado = {
+        id: 'prog-uuid',
+        estado: ServicioProgramadoEstado.CANCELADO,
+        customer: { id: 'cust-1' } as Customer,
+        servicio: { id: 'serv-1' } as Servicio,
+        fechaInicioEstimada: new Date(),
+        fechaFinEstimada: new Date(),
+        totalHoras: 0,
+        notas: '',
+        motivoEstado: '',
+        insumos: [],
+      } as unknown as ServicioProgramado;
+
+      mockServicioProgramadoRepository.findOne.mockResolvedValue(mockProgramado);
+
+      await expect(
+        testService.cancelProgramado('prog-uuid', { motivo: 'Test' }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw NotFoundException when canceling non-existent programado', async () => {
+      mockServicioProgramadoRepository.findOne.mockResolvedValue(null);
+
+      await expect(
+        testService.cancelProgramado('nonexistent', { motivo: 'Test' }),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('should validate CreateProgramadoDto successfully', async () => {
+      const dto = new CreateProgramadoDto();
+      dto.customerId = '550e8400-e29b-41d4-a716-446655440000';
+      dto.servicioId = '550e8400-e29b-41d4-a716-446655440001';
+      dto.fechaInicioEstimada = '2026-01-12T08:00:00Z';
+      const errors = await validate(dto);
+      expect(errors.length).toBe(0);
+    });
+
+    it('should fail CreateProgramadoDto validation when customerId is missing', async () => {
+      const dto = new CreateProgramadoDto();
+      dto.servicioId = '550e8400-e29b-41d4-a716-446655440001';
+      dto.fechaInicioEstimada = '2026-01-12T08:00:00Z';
+      const errors = await validate(dto);
+      expect(errors.length).toBeGreaterThan(0);
+    });
+
+    it('should fail CreateProgramadoInsumoDto validation when cantidad is zero', async () => {
+      const dto = new CreateProgramadoInsumoDto();
+      dto.insumoId = '550e8400-e29b-41d4-a716-446655440000';
+      dto.cantidad = 0;
+      const errors = await validate(dto);
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0].constraints).toHaveProperty('min');
+    });
+
+    it('should fail CreateProgramadoInsumoDto validation when cantidad is negative', async () => {
+      const dto = new CreateProgramadoInsumoDto();
+      dto.insumoId = '550e8400-e29b-41d4-a716-446655440000';
+      dto.cantidad = -5;
+      const errors = await validate(dto);
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0].constraints).toHaveProperty('min');
+    });
+
+    it('should validate CreateProgramadoInsumoDto successfully with valid cantidad', async () => {
+      const dto = new CreateProgramadoInsumoDto();
+      dto.insumoId = '550e8400-e29b-41d4-a716-446655440000';
+      dto.cantidad = 5;
+      const errors = await validate(dto);
+      expect(errors.length).toBe(0);
     });
   });
 });

@@ -41,6 +41,8 @@ import { Actividad } from './modules/operational/entities/actividad.entity';
 import { Insumo } from './modules/operational/entities/insumo.entity';
 import { Servicio } from './modules/operational/entities/servicio.entity';
 import { ServicioActividad } from './modules/operational/entities/servicio-actividad.entity';
+import { ServicioProgramado } from './modules/operational/entities/servicio-programado.entity';
+import { ServicioProgramadoInsumo } from './modules/operational/entities/servicio-programado-insumo.entity';
 
 @Module({
   imports: [
@@ -86,6 +88,8 @@ import { ServicioActividad } from './modules/operational/entities/servicio-activ
           Insumo,
           Servicio,
           ServicioActividad,
+          ServicioProgramado,
+          ServicioProgramadoInsumo,
         ],
         synchronize: true, // Only for development
       }),

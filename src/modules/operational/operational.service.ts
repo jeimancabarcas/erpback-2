@@ -11,6 +11,12 @@ import { Actividad } from './entities/actividad.entity';
 import { Insumo } from './entities/insumo.entity';
 import { Servicio } from './entities/servicio.entity';
 import { ServicioActividad } from './entities/servicio-actividad.entity';
+import {
+  ServicioProgramado,
+  ServicioProgramadoEstado,
+} from './entities/servicio-programado.entity';
+import { ServicioProgramadoInsumo } from './entities/servicio-programado-insumo.entity';
+import { Customer } from '../customers/entities/customer.entity';
 import { CreateActividadDto } from './dto/create-actividad.dto';
 import { UpdateActividadDto } from './dto/update-actividad.dto';
 import { QueryActividadDto } from './dto/query-actividad.dto';
@@ -23,8 +29,14 @@ import { QueryServicioDto } from './dto/query-servicio.dto';
 import { CreateServicioActividadDto } from './dto/create-servicio-actividad.dto';
 import { UpdateServicioActividadDto } from './dto/update-servicio-actividad.dto';
 import { QueryServicioActividadDto } from './dto/query-servicio-actividad.dto';
+import { CreateProgramadoDto } from './dto/create-programado.dto';
+import { QueryProgramadosDto } from './dto/query-programados.dto';
+import { ChangeStateDto } from './dto/change-state.dto';
+import { CancelDto } from './dto/cancel.dto';
 import { PaginatedResult } from '../../common/interfaces/paginated-result.interface';
 import { buildWhere } from '../../common/helpers/query.helper';
+import { calculateEndDate } from '../../common/helpers/date.helper';
+import { Between, LessThanOrEqual, MoreThanOrEqual } from 'typeorm';
 
 @Injectable()
 export class OperationalService {
@@ -42,6 +54,15 @@ export class OperationalService {
 
     @InjectRepository(ServicioActividad)
     private readonly servicioActividadRepository: Repository<ServicioActividad>,
+
+    @InjectRepository(ServicioProgramado)
+    private readonly servicioProgramadoRepository: Repository<ServicioProgramado>,
+
+    @InjectRepository(ServicioProgramadoInsumo)
+    private readonly servicioProgramadoInsumoRepository: Repository<ServicioProgramadoInsumo>,
+
+    @InjectRepository(Customer)
+    private readonly customerRepository: Repository<Customer>,
   ) {}
 
   // =========================================================================
@@ -440,5 +461,264 @@ export class OperationalService {
     }
 
     await this.servicioActividadRepository.delete(pivot.id);
+  }
+
+  // =========================================================================
+  // ServicioProgramado CRUD
+  // =========================================================================
+
+  async createProgramado(
+    createDto: CreateProgramadoDto,
+  ): Promise<ServicioProgramado> {
+    const { customerId, servicioId, fechaInicioEstimada, insumos, notas } = createDto;
+
+    // Validate customer exists and is active
+    const customer = await this.customerRepository.findOne({
+      where: { id: customerId },
+    });
+    if (!customer) {
+      throw new NotFoundException(
+        `Cliente con ID ${customerId} no encontrado`,
+      );
+    }
+    if (customer.status !== 'ACTIVE') {
+      throw new BadRequestException('El cliente no está activo');
+    }
+
+    // Validate servicio exists
+    const servicio = await this.servicioRepository.findOne({
+      where: { id: servicioId },
+      relations: ['actividades', 'actividades.actividad'],
+    });
+    if (!servicio) {
+      throw new NotFoundException(
+        `Servicio con ID ${servicioId} no encontrado`,
+      );
+    }
+
+    // Calculate total hours from activities
+    const totalHoras = servicio.actividades.reduce((total, act) => {
+      const horas = act.actividad?.horasEstimadas ?? 0;
+      return total + (horas || 0);
+    }, 0);
+
+    // Calculate end date
+    const startDate = new Date(fechaInicioEstimada);
+    const fechaFinEstimada = calculateEndDate(startDate, totalHoras);
+
+    return this.servicioProgramadoRepository.manager.transaction(
+      async (manager) => {
+        const newProgramado = manager.create(ServicioProgramado, {
+          customer: { id: customerId },
+          servicio: { id: servicioId },
+          fechaInicioEstimada: startDate,
+          fechaFinEstimada,
+          totalHoras,
+          notas,
+          estado: ServicioProgramadoEstado.PENDIENTE,
+        });
+
+        const saved = await manager.save(newProgramado);
+
+        // Create insumo rows
+        if (insumos && insumos.length > 0) {
+          const insumoEntities = insumos.map((i) =>
+            manager.create(ServicioProgramadoInsumo, {
+              servicioProgramado: { id: saved.id },
+              insumo: { id: i.insumoId },
+              cantidad: i.cantidad,
+            }),
+          );
+          await manager.save(ServicioProgramadoInsumo, insumoEntities);
+        }
+
+        // Return with relations
+        const found = await this.servicioProgramadoRepository.findOne({
+          where: { id: saved.id },
+          relations: ['customer', 'servicio', 'insumos', 'insumos.insumo'],
+        });
+
+        return found!;
+      },
+    );
+  }
+
+  async findAllProgramados(
+    queryDto: QueryProgramadosDto,
+  ): Promise<PaginatedResult<ServicioProgramado>> {
+    const {
+      page = 1,
+      limit = 10,
+      sortBy = 'createdAt',
+      order = 'DESC',
+      estado,
+      customerId,
+      dateFrom,
+      dateTo,
+    } = queryDto;
+    const skip = (page - 1) * limit;
+
+    const where: any = {};
+    if (estado) where.estado = estado;
+    if (customerId) where.customer = { id: customerId };
+
+    // Use proper TypeORM operators for date filtering
+    if (dateFrom && dateTo) {
+      where.fechaInicioEstimada = Between(new Date(dateFrom), new Date(dateTo));
+    } else if (dateFrom) {
+      where.fechaInicioEstimada = MoreThanOrEqual(new Date(dateFrom));
+    } else if (dateTo) {
+      where.fechaInicioEstimada = LessThanOrEqual(new Date(dateTo));
+    }
+
+    const [data, total] = await this.servicioProgramadoRepository.findAndCount({
+      where,
+      order: { [sortBy || 'createdAt']: order || 'DESC' },
+      take: limit,
+      skip,
+      relations: ['customer', 'servicio', 'insumos', 'insumos.insumo'],
+    });
+
+    return {
+      data,
+      meta: {
+        total,
+        page,
+        lastPage: Math.ceil(total / limit),
+        limit,
+      },
+    };
+  }
+
+  async findOneProgramado(id: string): Promise<ServicioProgramado> {
+    const programado = await this.servicioProgramadoRepository.findOne({
+      where: { id },
+      relations: ['customer', 'servicio', 'insumos', 'insumos.insumo'],
+    });
+    if (!programado) {
+      throw new NotFoundException(
+        `Servicio programado con ID ${id} no encontrado`,
+      );
+    }
+    return programado;
+  }
+
+  async changeState(
+    id: string,
+    dto: ChangeStateDto,
+  ): Promise<ServicioProgramado> {
+    const programado = await this.servicioProgramadoRepository.findOne({
+      where: { id },
+      relations: ['servicio', 'servicio.actividades', 'servicio.actividades.actividad', 'insumos', 'insumos.insumo'],
+    });
+    if (!programado) {
+      throw new NotFoundException(
+        `Servicio programado con ID ${id} no encontrado`,
+      );
+    }
+
+    const { estado: nuevoEstado, motivo } = dto;
+
+    // Validate transition
+    const validTransitions: Record<string, string[]> = {
+      [ServicioProgramadoEstado.PENDIENTE]: [
+        ServicioProgramadoEstado.INICIADO,
+        ServicioProgramadoEstado.CANCELADO,
+      ],
+      [ServicioProgramadoEstado.INICIADO]: [
+        ServicioProgramadoEstado.PAUSADO,
+        ServicioProgramadoEstado.FINALIZADO,
+        ServicioProgramadoEstado.CANCELADO,
+      ],
+      [ServicioProgramadoEstado.PAUSADO]: [
+        ServicioProgramadoEstado.INICIADO,
+        ServicioProgramadoEstado.FINALIZADO,
+        ServicioProgramadoEstado.CANCELADO,
+      ],
+      [ServicioProgramadoEstado.FINALIZADO]: [],
+      [ServicioProgramadoEstado.CANCELADO]: [],
+    };
+
+    const currentEstado = programado.estado;
+    const allowed = validTransitions[currentEstado] || [];
+
+    if (!allowed.includes(nuevoEstado)) {
+      if (
+        currentEstado === ServicioProgramadoEstado.CANCELADO ||
+        currentEstado === ServicioProgramadoEstado.FINALIZADO
+      ) {
+        throw new BadRequestException(
+          'No se puede cambiar el estado de un servicio cancelado o finalizado',
+        );
+      }
+      throw new BadRequestException(
+        `Transición de estado inválida: ${currentEstado} → ${nuevoEstado}`,
+      );
+    }
+
+    // Motivo required for PAUSADO and CANCELADO
+    if (
+      (nuevoEstado === ServicioProgramadoEstado.PAUSADO ||
+        nuevoEstado === ServicioProgramadoEstado.CANCELADO) &&
+      !motivo
+    ) {
+      throw new BadRequestException(
+        'El motivo es obligatorio para el estado ' + nuevoEstado,
+      );
+    }
+
+    // Update state
+    programado.estado = nuevoEstado as ServicioProgramadoEstado;
+    programado.motivoEstado = motivo || programado.motivoEstado;
+
+    // Recalculate end date when transitioning to INICIADO
+    if (nuevoEstado === ServicioProgramadoEstado.INICIADO) {
+      const totalHoras = programado.servicio.actividades.reduce(
+        (total, act) => total + (act.actividad?.horasEstimadas || 0),
+        0,
+      );
+      programado.fechaFinEstimada = calculateEndDate(
+        programado.fechaInicioEstimada,
+        totalHoras,
+      );
+    }
+
+    return this.servicioProgramadoRepository.save(programado);
+  }
+
+  async cancelProgramado(
+    id: string,
+    dto: CancelDto,
+  ): Promise<ServicioProgramado> {
+    const programado = await this.servicioProgramadoRepository.findOne({
+      where: { id },
+      relations: ['insumos'],
+    });
+    if (!programado) {
+      throw new NotFoundException(
+        `Servicio programado con ID ${id} no encontrado`,
+      );
+    }
+
+    if (
+      programado.estado === ServicioProgramadoEstado.FINALIZADO ||
+      programado.estado === ServicioProgramadoEstado.CANCELADO
+    ) {
+      throw new BadRequestException(
+        'No se puede cancelar un servicio ya finalizado o cancelado',
+      );
+    }
+
+    // Delete insumo rows (explicit delete before setting state)
+    if (programado.insumos && programado.insumos.length > 0) {
+      await this.servicioProgramadoInsumoRepository.delete(
+        programado.insumos.map((i) => i.id),
+      );
+    }
+
+    programado.estado = ServicioProgramadoEstado.CANCELADO;
+    programado.motivoEstado = dto.motivo;
+
+    return this.servicioProgramadoRepository.save(programado);
   }
 }

@@ -23,6 +23,10 @@ import { QueryServicioDto } from './dto/query-servicio.dto';
 import { CreateServicioActividadDto } from './dto/create-servicio-actividad.dto';
 import { UpdateServicioActividadDto } from './dto/update-servicio-actividad.dto';
 import { QueryServicioActividadDto } from './dto/query-servicio-actividad.dto';
+import { CreateProgramadoDto } from './dto/create-programado.dto';
+import { QueryProgramadosDto } from './dto/query-programados.dto';
+import { ChangeStateDto } from './dto/change-state.dto';
+import { CancelDto } from './dto/cancel.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @Controller('operational')
@@ -171,5 +175,38 @@ export class OperationalController {
   @Delete('servicio-actividades/:id')
   removeServicioActividad(@Param('id', ParseUUIDPipe) id: string) {
     return this.operationalService.removeServicioActividad(id);
+  }
+
+  // ── Servicio Programado Endpoints ──
+
+  @Post('servicio-programados')
+  createProgramado(@Body() createDto: CreateProgramadoDto) {
+    return this.operationalService.createProgramado(createDto);
+  }
+
+  @Get('servicio-programados')
+  findAllProgramados(@Query() queryDto: QueryProgramadosDto) {
+    return this.operationalService.findAllProgramados(queryDto);
+  }
+
+  @Get('servicio-programados/:id')
+  findOneProgramado(@Param('id', ParseUUIDPipe) id: string) {
+    return this.operationalService.findOneProgramado(id);
+  }
+
+  @Patch('servicio-programados/:id/state')
+  changeState(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ChangeStateDto,
+  ) {
+    return this.operationalService.changeState(id, dto);
+  }
+
+  @Post('servicio-programados/:id/cancel')
+  cancelProgramado(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CancelDto,
+  ) {
+    return this.operationalService.cancelProgramado(id, dto);
   }
 }

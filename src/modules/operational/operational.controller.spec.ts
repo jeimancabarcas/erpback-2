@@ -13,6 +13,10 @@ import { QueryServicioDto } from './dto/query-servicio.dto';
 import { CreateServicioActividadDto } from './dto/create-servicio-actividad.dto';
 import { UpdateServicioActividadDto } from './dto/update-servicio-actividad.dto';
 import { QueryServicioActividadDto } from './dto/query-servicio-actividad.dto';
+import { CreateProgramadoDto } from './dto/create-programado.dto';
+import { QueryProgramadosDto } from './dto/query-programados.dto';
+import { ChangeStateDto } from './dto/change-state.dto';
+import { CancelDto } from './dto/cancel.dto';
 
 describe('OperationalController', () => {
   let controller: OperationalController;
@@ -39,6 +43,11 @@ describe('OperationalController', () => {
     findOneServicioActividad: jest.fn(),
     updateServicioActividad: jest.fn(),
     removeServicioActividad: jest.fn(),
+    createProgramado: jest.fn(),
+    findAllProgramados: jest.fn(),
+    findOneProgramado: jest.fn(),
+    changeState: jest.fn(),
+    cancelProgramado: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -244,8 +253,6 @@ describe('OperationalController', () => {
       const createDto: CreateServicioActividadDto = {
         servicioId: 'uuid-3',
         actividadId: 'uuid-1',
-        cantidad: 2,
-        precio: 75,
       };
       const mockResult = { id: 'pivot-uuid', ...createDto };
 
@@ -278,7 +285,7 @@ describe('OperationalController', () => {
     });
 
     it('should PATCH update a servicio-actividad', async () => {
-      const updateDto: UpdateServicioActividadDto = { cantidad: 5 };
+      const updateDto: UpdateServicioActividadDto = {};
       const mockResult = { id: 'pivot-uuid', cantidad: 5 };
 
       mockOperationalService.updateServicioActividad.mockResolvedValue(mockResult);
@@ -295,6 +302,102 @@ describe('OperationalController', () => {
       await controller.removeServicioActividad('pivot-uuid');
 
       expect(service.removeServicioActividad).toHaveBeenCalledWith('pivot-uuid');
+    });
+  });
+
+  // =========================================================================
+  // ServicioProgramado endpoints
+  // =========================================================================
+
+  describe('ServicioProgramado endpoints', () => {
+    it('should POST create a servicio-programado', async () => {
+      const createDto: CreateProgramadoDto = {
+        customerId: '550e8400-e29b-41d4-a716-446655440100',
+        servicioId: '550e8400-e29b-41d4-a716-446655440101',
+        fechaInicioEstimada: '2026-01-15T08:00:00Z',
+        insumos: [{ insumoId: '550e8400-e29b-41d4-a716-446655440102', cantidad: 5 }],
+        notas: 'Notas de prueba',
+      };
+      const mockResult = {
+        id: 'prog-uuid',
+        ...createDto,
+        estado: 'PENDIENTE',
+        totalHoras: 16,
+      };
+
+      mockOperationalService.createProgramado.mockResolvedValue(mockResult);
+
+      const result = await controller.createProgramado(createDto);
+
+      expect(service.createProgramado).toHaveBeenCalledWith(createDto);
+      expect(result).toEqual(mockResult);
+    });
+
+    it('should GET all servicio-programados with filters', async () => {
+      const queryDto: QueryProgramadosDto = { page: 1, limit: 10, estado: 'PENDIENTE' };
+      const mockResult = {
+        data: [
+          { id: 'prog-1', estado: 'PENDIENTE', customer: { id: 'cust-1', name: 'Cliente 1' } },
+        ],
+        meta: { total: 1, page: 1, lastPage: 1, limit: 10 },
+      };
+
+      mockOperationalService.findAllProgramados.mockResolvedValue(mockResult);
+
+      const result = await controller.findAllProgramados(queryDto);
+
+      expect(service.findAllProgramados).toHaveBeenCalledWith(queryDto);
+      expect(result).toEqual(mockResult);
+    });
+
+    it('should GET one servicio-programado by id', async () => {
+      const mockResult = {
+        id: 'prog-uuid',
+        customer: { id: 'cust-1', name: 'Cliente 1' },
+        servicio: { id: 'serv-1', nombre: 'Servicio 1' },
+        estado: 'PENDIENTE',
+        fechaInicioEstimada: '2026-01-15T08:00:00Z',
+        insumos: [],
+      };
+
+      mockOperationalService.findOneProgramado.mockResolvedValue(mockResult);
+
+      const result = await controller.findOneProgramado('prog-uuid');
+
+      expect(service.findOneProgramado).toHaveBeenCalledWith('prog-uuid');
+      expect(result).toEqual(mockResult);
+    });
+
+    it('should PATCH change state of a servicio-programado', async () => {
+      const dto: ChangeStateDto = { estado: 'INICIADO', motivo: 'Iniciando servicio' };
+      const mockResult = {
+        id: 'prog-uuid',
+        estado: 'INICIADO',
+        motivoEstado: 'Iniciando servicio',
+      };
+
+      mockOperationalService.changeState.mockResolvedValue(mockResult);
+
+      const result = await controller.changeState('prog-uuid', dto);
+
+      expect(service.changeState).toHaveBeenCalledWith('prog-uuid', dto);
+      expect(result).toEqual(mockResult);
+    });
+
+    it('should POST cancel a servicio-programado', async () => {
+      const dto: CancelDto = { motivo: 'Cliente solicitó cancelación' };
+      const mockResult = {
+        id: 'prog-uuid',
+        estado: 'CANCELADO',
+        motivoEstado: 'Cliente solicitó cancelación',
+      };
+
+      mockOperationalService.cancelProgramado.mockResolvedValue(mockResult);
+
+      const result = await controller.cancelProgramado('prog-uuid', dto);
+
+      expect(service.cancelProgramado).toHaveBeenCalledWith('prog-uuid', dto);
+      expect(result).toEqual(mockResult);
     });
   });
 });
