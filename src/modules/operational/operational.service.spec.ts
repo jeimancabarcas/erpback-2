@@ -22,6 +22,7 @@ import {
 } from '@nestjs/common';
 import { ServicioProgramado, ServicioProgramadoEstado } from './entities/servicio-programado.entity';
 import { ServicioProgramadoInsumo } from './entities/servicio-programado-insumo.entity';
+import { ServicioProgramadoActividad } from './entities/servicio-programado-actividad.entity';
 import { Customer, CustomerStatus } from '../customers/entities/customer.entity';
 import { CreateProgramadoDto, CreateProgramadoInsumoDto } from './dto/create-programado.dto';
 import { ChangeStateDto } from './dto/change-state.dto';
@@ -753,6 +754,7 @@ describe('OperationalService', () => {
     let mockCustomerRepository: any;
     let mockServicioProgramadoRepository: any;
     let mockServicioProgramadoInsumoRepository: any;
+    let mockServicioProgramadoActividadRepository: any;
     let testService: OperationalService;
 
     beforeEach(async () => {
@@ -776,6 +778,12 @@ describe('OperationalService', () => {
       };
 
       mockServicioProgramadoInsumoRepository = {
+        create: jest.fn(),
+        save: jest.fn(),
+        delete: jest.fn(),
+      };
+
+      mockServicioProgramadoActividadRepository = {
         create: jest.fn(),
         save: jest.fn(),
         delete: jest.fn(),
@@ -809,6 +817,10 @@ describe('OperationalService', () => {
             useValue: mockServicioProgramadoInsumoRepository,
           },
           {
+            provide: getRepositoryToken(ServicioProgramadoActividad),
+            useValue: mockServicioProgramadoActividadRepository,
+          },
+          {
             provide: getRepositoryToken(Customer),
             useValue: mockCustomerRepository,
           },
@@ -818,7 +830,7 @@ describe('OperationalService', () => {
       testService = module.get<OperationalService>(OperationalService);
     });
 
-    it('should create a programado service with insumos and calculate dates', async () => {
+    it('should create a programado service with snapshot data from originals', async () => {
       const createDto: CreateProgramadoDto = {
         customerId: '550e8400-e29b-41d4-a716-446655440200',
         servicioId: '550e8400-e29b-41d4-a716-446655440201',
@@ -836,35 +848,78 @@ describe('OperationalService', () => {
       const mockServicio = {
         id: createDto.servicioId,
         nombre: 'Servicio Test',
+        descripcion: 'Descripción de prueba',
+        precioBase: 150000,
         actividades: [
-          { actividad: { horasEstimadas: 8 } },
-          { actividad: { horasEstimadas: 8 } },
+          {
+            id: 'sa-1',
+            actividad: {
+              id: 'act-1',
+              nombre: 'Actividad 1',
+              descripcion: 'Desc actividad 1',
+              horasEstimadas: 8,
+            },
+          },
+          {
+            id: 'sa-2',
+            actividad: {
+              id: 'act-2',
+              nombre: 'Actividad 2',
+              descripcion: null,
+              horasEstimadas: 8,
+            },
+          },
         ],
+      } as any;
+
+      const mockInsumo = {
+        id: createDto.insumos![0].insumoId,
+        nombre: 'Insumo Test',
+        descripcion: null,
       } as any;
 
       const savedProgramado = {
         id: 'prog-uuid-001',
         customer: mockCustomer,
-        servicio: mockServicio,
+        servicioNombre: 'Servicio Test',
+        servicioDescripcion: 'Descripción de prueba',
+        servicioPrecioBase: 150000,
         estado: ServicioProgramadoEstado.PENDIENTE,
         fechaInicioEstimada: new Date('2026-01-12T08:00:00Z'),
         fechaFinEstimada: new Date('2026-01-13T17:00:00Z'),
         totalHoras: 16,
         notas: 'Notas de prueba',
+        actividades: [],
         insumos: [],
       };
 
       const foundProgramado = {
         ...savedProgramado,
+        actividades: [
+          {
+            id: 'spa-001',
+            servicioProgramado: { id: savedProgramado.id },
+            actividadNombre: 'Actividad 1',
+            actividadDescripcion: 'Desc actividad 1',
+            actividadHorasEstimadas: 8,
+          },
+          {
+            id: 'spa-002',
+            servicioProgramado: { id: savedProgramado.id },
+            actividadNombre: 'Actividad 2',
+            actividadDescripcion: null,
+            actividadHorasEstimadas: 8,
+          },
+        ],
         insumos: [
           {
             id: 'pin-001',
             servicioProgramado: { id: savedProgramado.id },
-            insumo: { id: createDto.insumos![0].insumoId },
+            insumoNombre: 'Insumo Test',
             cantidad: 5,
           },
         ],
-      } as ServicioProgramado;
+      } as unknown as ServicioProgramado;
 
       mockCustomerRepository.findOne.mockResolvedValue(mockCustomer);
       mockServicioRepository.findOne.mockResolvedValue(mockServicio);
@@ -875,10 +930,14 @@ describe('OperationalService', () => {
           if (entity === ServicioProgramado) {
             return { id: 'prog-uuid-001' };
           }
+          if (entity === ServicioProgramadoActividad) {
+            return { id: 'spa-001' };
+          }
           return { id: 'pin-001' };
         }),
         delete: jest.fn(),
         getRepository: jest.fn(),
+        findOne: jest.fn(),
       };
 
       mockServicioProgramadoRepository.manager.transaction
@@ -900,10 +959,12 @@ describe('OperationalService', () => {
       expect(result.estado).toBe(ServicioProgramadoEstado.PENDIENTE);
       expect(result.totalHoras).toBe(16);
       expect(result.fechaFinEstimada).toBeInstanceOf(Date);
+      expect(result.servicioNombre).toBe('Servicio Test');
       expect(txManager.save).toHaveBeenCalledWith(
         expect.anything(),
         expect.objectContaining({ estado: ServicioProgramadoEstado.PENDIENTE })
       );
+      expect(mockServicioProgramadoActividadRepository.save).toHaveBeenCalled();
       expect(mockServicioProgramadoInsumoRepository.save).toHaveBeenCalled();
     });
 
@@ -946,13 +1007,14 @@ describe('OperationalService', () => {
         {
           id: 'prog-1',
           customer: { id: 'cust-1', name: 'Cliente 1' } as Customer,
-          servicio: { id: 'serv-1', nombre: 'Servicio 1' } as Servicio,
+          servicioNombre: 'Servicio 1',
           estado: 'PENDIENTE',
           fechaInicioEstimada: new Date(),
           fechaFinEstimada: new Date(),
           totalHoras: 8,
           notas: '',
           motivoEstado: '',
+          actividades: [],
           insumos: [],
         },
       ] as unknown as ServicioProgramado[];
@@ -971,7 +1033,7 @@ describe('OperationalService', () => {
         {
           id: 'prog-1',
           customer: { id: 'cust-1', name: 'Cliente 1' } as Customer,
-          servicio: { id: 'serv-1' } as Servicio,
+          servicioNombre: 'Servicio 1',
           fechaInicioEstimada: new Date('2026-01-15T10:00:00Z'),
           fechaFinEstimada: new Date('2026-01-15T18:00:00Z'),
           totalHoras: 8,
@@ -983,7 +1045,7 @@ describe('OperationalService', () => {
         {
           id: 'prog-2',
           customer: { id: 'cust-2', name: 'Cliente 2' } as Customer,
-          servicio: { id: 'serv-2' } as Servicio,
+          servicioNombre: 'Servicio 2',
           fechaInicioEstimada: new Date('2026-02-20T10:00:00Z'),
           fechaFinEstimada: new Date('2026-02-20T18:00:00Z'),
           totalHoras: 8,
@@ -1011,7 +1073,7 @@ describe('OperationalService', () => {
         {
           id: 'prog-1',
           customer: { id: 'cust-1', name: 'Cliente 1' } as Customer,
-          servicio: { id: 'serv-1' } as Servicio,
+          servicioNombre: 'Servicio 1',
           fechaInicioEstimada: new Date('2026-02-15T10:00:00Z'),
           fechaFinEstimada: new Date('2026-02-15T18:00:00Z'),
           totalHoras: 8,
@@ -1037,7 +1099,7 @@ describe('OperationalService', () => {
         {
           id: 'prog-1',
           customer: { id: 'cust-1', name: 'Cliente 1' } as Customer,
-          servicio: { id: 'serv-1' } as Servicio,
+          servicioNombre: 'Servicio 1',
           fechaInicioEstimada: new Date('2026-01-15T10:00:00Z'),
           fechaFinEstimada: new Date('2026-01-15T18:00:00Z'),
           totalHoras: 8,

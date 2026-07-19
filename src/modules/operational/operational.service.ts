@@ -16,6 +16,7 @@ import {
   ServicioProgramadoEstado,
 } from './entities/servicio-programado.entity';
 import { ServicioProgramadoInsumo } from './entities/servicio-programado-insumo.entity';
+import { ServicioProgramadoActividad } from './entities/servicio-programado-actividad.entity';
 import { Customer } from '../customers/entities/customer.entity';
 import { CreateActividadDto } from './dto/create-actividad.dto';
 import { UpdateActividadDto } from './dto/update-actividad.dto';
@@ -60,6 +61,9 @@ export class OperationalService {
 
     @InjectRepository(ServicioProgramadoInsumo)
     private readonly servicioProgramadoInsumoRepository: Repository<ServicioProgramadoInsumo>,
+
+    @InjectRepository(ServicioProgramadoActividad)
+    private readonly servicioProgramadoActividadRepository: Repository<ServicioProgramadoActividad>,
 
     @InjectRepository(Customer)
     private readonly customerRepository: Repository<Customer>,
@@ -485,7 +489,7 @@ export class OperationalService {
       throw new BadRequestException('El cliente no está activo');
     }
 
-    // Validate servicio exists
+    // Look up servicio and its activities from original table
     const servicio = await this.servicioRepository.findOne({
       where: { id: servicioId },
       relations: ['actividades', 'actividades.actividad'],
@@ -496,7 +500,7 @@ export class OperationalService {
       );
     }
 
-    // Calculate total hours from activities
+    // Calculate total hours from service activities
     const totalHoras = servicio.actividades.reduce((total, act) => {
       const horas = act.actividad?.horasEstimadas ?? 0;
       return total + (horas || 0);
@@ -508,9 +512,12 @@ export class OperationalService {
 
     return this.servicioProgramadoRepository.manager.transaction(
       async (manager) => {
+        // Create programado with snapshot data from servicio
         const newProgramado = manager.create(ServicioProgramado, {
           customer: { id: customerId },
-          servicio: { id: servicioId },
+          servicioNombre: servicio.nombre,
+          servicioDescripcion: servicio.descripcion,
+          servicioPrecioBase: servicio.precioBase,
           fechaInicioEstimada: startDate,
           fechaFinEstimada,
           totalHoras,
@@ -520,22 +527,48 @@ export class OperationalService {
 
         const saved = await manager.save(newProgramado);
 
-        // Create insumo rows
-        if (insumos && insumos.length > 0) {
-          const insumoEntities = insumos.map((i) =>
-            manager.create(ServicioProgramadoInsumo, {
-              servicioProgramado: { id: saved.id },
-              insumo: { id: i.insumoId },
-              cantidad: i.cantidad,
+        // Create activity snapshot rows from servicio.actividades
+        if (servicio.actividades && servicio.actividades.length > 0) {
+          const actividadEntities = servicio.actividades.map((sa) =>
+            manager.create(ServicioProgramadoActividad, {
+              servicio_programado_id: saved.id,
+              actividadNombre: sa.actividad?.nombre || '',
+              actividadDescripcion: sa.actividad?.descripcion,
+              actividadHorasEstimadas: sa.actividad?.horasEstimadas,
             }),
           );
-          await manager.save(ServicioProgramadoInsumo, insumoEntities);
+          await manager.save(ServicioProgramadoActividad, actividadEntities);
         }
 
-        // Return with relations
+        // Create insumo snapshot rows - look up each insumo name
+        if (insumos && insumos.length > 0) {
+          const insumoEntities: any[] = [];
+          for (const i of insumos) {
+            const insumoData = await this.insumoRepository.findOne({ where: { id: i.insumoId } });
+            if (!insumoData) {
+              throw new NotFoundException(
+                `Insumo con ID ${i.insumoId} no encontrado`,
+              );
+            }
+            insumoEntities.push(
+              this.servicioProgramadoInsumoRepository.create({
+                servicio_programado_id: saved.id,
+                insumoNombre: insumoData.nombre,
+                cantidad: i.cantidad,
+              } as any),
+            );
+          }
+          await this.servicioProgramadoInsumoRepository.save(insumoEntities);
+        }
+
+        // Return with snapshot relations
         const found = await this.servicioProgramadoRepository.findOne({
           where: { id: saved.id },
-          relations: ['customer', 'servicio', 'insumos', 'insumos.insumo'],
+          relations: [
+            'customer',
+            'actividades',
+            'insumos',
+          ],
         });
 
         return found!;
@@ -576,7 +609,7 @@ export class OperationalService {
       order: { [sortBy || 'createdAt']: order || 'DESC' },
       take: limit,
       skip,
-      relations: ['customer', 'servicio', 'insumos', 'insumos.insumo'],
+      relations: ['customer', 'actividades', 'insumos'],
     });
 
     return {
@@ -593,7 +626,7 @@ export class OperationalService {
   async findOneProgramado(id: string): Promise<ServicioProgramado> {
     const programado = await this.servicioProgramadoRepository.findOne({
       where: { id },
-      relations: ['customer', 'servicio', 'insumos', 'insumos.insumo'],
+      relations: ['customer', 'actividades', 'insumos'],
     });
     if (!programado) {
       throw new NotFoundException(
@@ -609,7 +642,7 @@ export class OperationalService {
   ): Promise<ServicioProgramado> {
     const programado = await this.servicioProgramadoRepository.findOne({
       where: { id },
-      relations: ['servicio', 'servicio.actividades', 'servicio.actividades.actividad', 'insumos', 'insumos.insumo'],
+      relations: ['actividades', 'insumos'],
     });
     if (!programado) {
       throw new NotFoundException(
@@ -671,10 +704,10 @@ export class OperationalService {
     programado.estado = nuevoEstado as ServicioProgramadoEstado;
     programado.motivoEstado = motivo || programado.motivoEstado;
 
-    // Recalculate end date when transitioning to INICIADO
+    // Recalculate end date when transitioning to INICIADO (using snapshot data)
     if (nuevoEstado === ServicioProgramadoEstado.INICIADO) {
-      const totalHoras = programado.servicio.actividades.reduce(
-        (total, act) => total + (act.actividad?.horasEstimadas || 0),
+      const totalHoras = (programado.actividades || []).reduce(
+        (total, act) => total + (act.actividadHorasEstimadas || 0),
         0,
       );
       programado.fechaFinEstimada = calculateEndDate(
@@ -706,13 +739,6 @@ export class OperationalService {
     ) {
       throw new BadRequestException(
         'No se puede cancelar un servicio ya finalizado o cancelado',
-      );
-    }
-
-    // Delete insumo rows (explicit delete before setting state)
-    if (programado.insumos && programado.insumos.length > 0) {
-      await this.servicioProgramadoInsumoRepository.delete(
-        programado.insumos.map((i) => i.id),
       );
     }
 

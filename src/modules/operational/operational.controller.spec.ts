@@ -320,9 +320,21 @@ describe('OperationalController', () => {
       };
       const mockResult = {
         id: 'prog-uuid',
-        ...createDto,
+        customer: { id: '550e8400-e29b-41d4-a716-446655440100', name: 'Cliente 1' },
+        servicioNombre: 'Servicio de prueba',
+        servicioDescripcion: 'Descripción del servicio',
+        servicioPrecioBase: 150000,
         estado: 'PENDIENTE',
         totalHoras: 16,
+        fechaInicioEstimada: new Date('2026-01-15T08:00:00Z'),
+        actividades: [
+          { id: 'act-1', actividadNombre: 'Actividad 1', actividadHorasEstimadas: 8 },
+          { id: 'act-2', actividadNombre: 'Actividad 2', actividadHorasEstimadas: 8 },
+        ],
+        insumos: [
+          { id: 'ins-1', insumoNombre: 'Insumo A', cantidad: 5 },
+        ],
+        notas: 'Notas de prueba',
       };
 
       mockOperationalService.createProgramado.mockResolvedValue(mockResult);
@@ -354,9 +366,14 @@ describe('OperationalController', () => {
       const mockResult = {
         id: 'prog-uuid',
         customer: { id: 'cust-1', name: 'Cliente 1' },
-        servicio: { id: 'serv-1', nombre: 'Servicio 1' },
+        servicioNombre: 'Servicio de prueba',
+        servicioDescripcion: 'Descripción del servicio',
+        servicioPrecioBase: 150000,
         estado: 'PENDIENTE',
         fechaInicioEstimada: '2026-01-15T08:00:00Z',
+        fechaFinEstimada: '2026-01-16T17:00:00Z',
+        totalHoras: 16,
+        actividades: [],
         insumos: [],
       };
 

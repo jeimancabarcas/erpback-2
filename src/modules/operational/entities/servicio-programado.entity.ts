@@ -9,8 +9,8 @@ import {
   OneToMany,
 } from 'typeorm';
 import { Customer } from '../../customers/entities/customer.entity';
-import { Servicio } from './servicio.entity';
 import { ServicioProgramadoInsumo } from './servicio-programado-insumo.entity';
+import { ServicioProgramadoActividad } from './servicio-programado-actividad.entity';
 
 export enum ServicioProgramadoEstado {
   PENDIENTE = 'PENDIENTE',
@@ -29,9 +29,21 @@ export class ServicioProgramado {
   @JoinColumn({ name: 'customer_id' })
   customer: Customer;
 
-  @ManyToOne(() => Servicio, { onDelete: 'RESTRICT' })
-  @JoinColumn({ name: 'servicio_id' })
-  servicio: Servicio;
+  // Snapshot del servicio (no referencia la tabla original)
+  @Column({ name: 'servicio_nombre' })
+  servicioNombre: string;
+
+  @Column({ name: 'servicio_descripcion', type: 'text', nullable: true })
+  servicioDescripcion: string;
+
+  @Column({
+    name: 'servicio_precio_base',
+    type: 'decimal',
+    precision: 12,
+    scale: 2,
+    nullable: true,
+  })
+  servicioPrecioBase: number | null;
 
   @Column({
     type: 'enum',
@@ -60,6 +72,12 @@ export class ServicioProgramado {
 
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
+
+  @OneToMany(
+    () => ServicioProgramadoActividad,
+    (actividad) => actividad.servicioProgramado,
+  )
+  actividades: ServicioProgramadoActividad[];
 
   @OneToMany(() => ServicioProgramadoInsumo, (insumo) => insumo.servicioProgramado)
   insumos: ServicioProgramadoInsumo[];

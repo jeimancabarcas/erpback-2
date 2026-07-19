@@ -7,20 +7,24 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { ServicioProgramado } from './servicio-programado.entity';
-import { Insumo } from './insumo.entity';
 
 @Entity('servicio_programado_insumos')
 export class ServicioProgramadoInsumo {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @ManyToOne(() => ServicioProgramado, { onDelete: 'CASCADE' })
+  @ManyToOne(() => ServicioProgramado, (sp) => sp.insumos, {
+    onDelete: 'CASCADE',
+  })
   @JoinColumn({ name: 'servicio_programado_id' })
   servicioProgramado: ServicioProgramado;
 
-  @ManyToOne(() => Insumo, { onDelete: 'RESTRICT' })
-  @JoinColumn({ name: 'insumo_id' })
-  insumo: Insumo;
+  // Snapshot del insumo (no referencia la tabla original)
+  @Column({ name: 'insumo_nombre' })
+  insumoNombre: string;
+
+  @Column({ name: 'unidad_medida', nullable: true })
+  unidadMedida: string;
 
   @Column({ type: 'float' })
   cantidad: number;

@@ -29,15 +29,13 @@ export function calculateEndDate(startDateTime: Date, totalHours: number): Date 
     // Skip weekends
     if (dayOfWeek === 0) {
       // Sunday → go to Monday 08:00
-      const monday = new Date(current);
-      monday.setDate(monday.getDate() + (1 - dayOfWeek));
+      current.setDate(current.getDate() + 1);
       current.setHours(DAY_START_HOUR, 0, 0, 0);
       continue;
     }
     if (dayOfWeek === 6) {
       // Saturday → go to Monday 08:00
-      const monday = new Date(current);
-      monday.setDate(monday.getDate() + (1 - dayOfWeek));
+      current.setDate(current.getDate() + (7 - dayOfWeek + 1));
       current.setHours(DAY_START_HOUR, 0, 0, 0);
       continue;
     }
