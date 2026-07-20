@@ -474,7 +474,7 @@ export class OperationalService {
   async createProgramado(
     createDto: CreateProgramadoDto,
   ): Promise<ServicioProgramado> {
-    const { customerId, servicioId, fechaInicioEstimada, insumos, notas } = createDto;
+    const { customerId, servicioId, fechaInicioEstimada, insumos, actividades, notas } = createDto;
 
     // Validate customer exists and is active
     const customer = await this.customerRepository.findOne({
@@ -500,14 +500,22 @@ export class OperationalService {
       );
     }
 
-    // Calculate total hours from service activities
-    const rawTotalHoras = (servicio.actividades || []).reduce((total, act) => {
-      const horas = act.actividad?.horasEstimadas ?? 0;
-      return total + Number(horas) || 0;
-    }, 0);
-    const totalHoras = Number.isFinite(rawTotalHoras) ? rawTotalHoras : 0;
+    // Determine which activities to use:
+    // If DTO provides edited activities, use them. Otherwise fall back to servicio.actividades.
+    const useDtoActivities = actividades && actividades.length > 0;
 
-    Logger.log(`[createProgramado] servicioId=${servicioId}, totalHoras=${totalHoras}, type=${typeof totalHoras}, actividades=${servicio.actividades?.length || 0}`);
+    // Calculate total hours
+    let totalHoras: number;
+    if (useDtoActivities) {
+      totalHoras = actividades.reduce((sum, a) => sum + (a.horasEstimadas ?? 0), 0);
+    } else {
+      totalHoras = (servicio.actividades || []).reduce((sum, act) => {
+        const horas = act.actividad?.horasEstimadas ?? 0;
+        return sum + Number(horas) || 0;
+      }, 0);
+    }
+
+    Logger.log(`[createProgramado] servicioId=${servicioId}, totalHoras=${totalHoras}, useDtoActivities=${useDtoActivities}`);
 
     // Calculate end date
     const startDate = new Date(fechaInicioEstimada);
@@ -515,7 +523,7 @@ export class OperationalService {
 
     return this.servicioProgramadoRepository.manager.transaction(
       async (manager) => {
-        // Create programado with snapshot data from servicio
+        // Create programado with snapshot data
         const newProgramado = manager.create(ServicioProgramado, {
           customer: { id: customerId },
           servicioNombre: servicio.nombre,
@@ -530,8 +538,19 @@ export class OperationalService {
 
         const saved = await manager.save(newProgramado);
 
-        // Create activity snapshot rows from servicio.actividades
-        if (servicio.actividades && servicio.actividades.length > 0) {
+        // Create activity snapshot rows
+        if (useDtoActivities) {
+          // Use activities from DTO (user-edited values)
+          const actividadEntities = actividades.map((a) =>
+            manager.create(ServicioProgramadoActividad, {
+              servicioProgramado: { id: saved.id } as ServicioProgramado,
+              actividadNombre: a.nombre || '',
+              actividadHorasEstimadas: a.horasEstimadas ?? null,
+            }),
+          );
+          await manager.save(ServicioProgramadoActividad, actividadEntities);
+        } else if (servicio.actividades && servicio.actividades.length > 0) {
+          // Fall back to original service activities
           const actividadEntities = servicio.actividades.map((sa) =>
             manager.create(ServicioProgramadoActividad, {
               servicioProgramado: { id: saved.id } as ServicioProgramado,

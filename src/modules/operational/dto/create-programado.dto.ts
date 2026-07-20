@@ -21,6 +21,21 @@ export class CreateProgramadoInsumoDto {
   cantidad: number;
 }
 
+export class CreateProgramadoActividadDto {
+  @IsUUID('all', { message: 'El ID de la actividad debe ser un UUID válido' })
+  actividadId: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255, { message: 'El nombre no puede exceder los 255 caracteres' })
+  nombre?: string;
+
+  @IsOptional()
+  @IsNumber({}, { message: 'Las horas deben ser un número válido' })
+  @Min(0, { message: 'Las horas no pueden ser negativas' })
+  horasEstimadas?: number;
+}
+
 export class CreateProgramadoDto {
   @IsUUID('all', { message: 'El ID del cliente debe ser un UUID válido' })
   customerId: string;
@@ -37,6 +52,12 @@ export class CreateProgramadoDto {
   @ValidateNested({ each: true })
   @Type(() => CreateProgramadoInsumoDto)
   insumos?: CreateProgramadoInsumoDto[];
+
+  @IsOptional()
+  @IsArray({ message: 'Las actividades deben ser un array' })
+  @ValidateNested({ each: true })
+  @Type(() => CreateProgramadoActividadDto)
+  actividades?: CreateProgramadoActividadDto[];
 
   @IsOptional()
   @IsString({ message: 'Las notas deben ser una cadena de texto' })
