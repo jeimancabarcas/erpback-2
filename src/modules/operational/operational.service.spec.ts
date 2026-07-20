@@ -936,7 +936,9 @@ describe('OperationalService', () => {
           return { id: 'pin-001' };
         }),
         delete: jest.fn(),
-        getRepository: jest.fn(),
+        getRepository: jest.fn((entity) => ({
+          findOne: jest.fn().mockResolvedValue(foundProgramado),
+        })),
         findOne: jest.fn(),
       };
 

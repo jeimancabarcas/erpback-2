@@ -501,10 +501,13 @@ export class OperationalService {
     }
 
     // Calculate total hours from service activities
-    const totalHoras = servicio.actividades.reduce((total, act) => {
+    const rawTotalHoras = (servicio.actividades || []).reduce((total, act) => {
       const horas = act.actividad?.horasEstimadas ?? 0;
-      return total + (horas || 0);
+      return total + Number(horas) || 0;
     }, 0);
+    const totalHoras = Number.isFinite(rawTotalHoras) ? rawTotalHoras : 0;
+
+    Logger.log(`[createProgramado] servicioId=${servicioId}, totalHoras=${totalHoras}, type=${typeof totalHoras}, actividades=${servicio.actividades?.length || 0}`);
 
     // Calculate end date
     const startDate = new Date(fechaInicioEstimada);
@@ -531,7 +534,7 @@ export class OperationalService {
         if (servicio.actividades && servicio.actividades.length > 0) {
           const actividadEntities = servicio.actividades.map((sa) =>
             manager.create(ServicioProgramadoActividad, {
-              servicio_programado_id: saved.id,
+              servicioProgramado: { id: saved.id } as ServicioProgramado,
               actividadNombre: sa.actividad?.nombre || '',
               actividadDescripcion: sa.actividad?.descripcion,
               actividadHorasEstimadas: sa.actividad?.horasEstimadas,
@@ -552,24 +555,27 @@ export class OperationalService {
             }
             insumoEntities.push(
               this.servicioProgramadoInsumoRepository.create({
-                servicio_programado_id: saved.id,
+                servicioProgramado: { id: saved.id } as ServicioProgramado,
                 insumoNombre: insumoData.nombre,
                 cantidad: i.cantidad,
               } as any),
             );
           }
-          await this.servicioProgramadoInsumoRepository.save(insumoEntities);
+          await manager.save(ServicioProgramadoInsumo, insumoEntities);
         }
 
-        // Return with snapshot relations
-        const found = await this.servicioProgramadoRepository.findOne({
-          where: { id: saved.id },
-          relations: [
-            'customer',
-            'actividades',
-            'insumos',
-          ],
-        });
+        // Return with snapshot relations - use manager's repository to ensure
+        // we query within the same transaction context as the saves above
+        const found = await manager
+          .getRepository(ServicioProgramado)
+          .findOne({
+            where: { id: saved.id },
+            relations: [
+              'customer',
+              'actividades',
+              'insumos',
+            ],
+          });
 
         return found!;
       },
