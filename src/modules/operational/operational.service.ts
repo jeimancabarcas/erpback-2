@@ -37,7 +37,7 @@ import { CancelDto } from './dto/cancel.dto';
 import { PaginatedResult } from '../../common/interfaces/paginated-result.interface';
 import { buildWhere } from '../../common/helpers/query.helper';
 import { calculateEndDate } from '../../common/helpers/date.helper';
-import { Between, LessThanOrEqual, MoreThanOrEqual } from 'typeorm';
+import { Between, IsNull, LessThanOrEqual, MoreThanOrEqual } from 'typeorm';
 
 @Injectable()
 export class OperationalService {
@@ -616,7 +616,7 @@ export class OperationalService {
     } = queryDto;
     const skip = (page - 1) * limit;
 
-    const where: any = {};
+    const where: any = { deletedAt: IsNull() };
     if (estado) where.estado = estado;
     if (customerId) where.customer = { id: customerId };
 
@@ -771,5 +771,33 @@ export class OperationalService {
     programado.motivoEstado = dto.motivo;
 
     return this.servicioProgramadoRepository.save(programado);
+  }
+
+  /**
+   * Soft delete: marca un servicio cancelado como eliminado (setea deletedAt).
+   * Solo se permite si el estado es CANCELADO.
+   */
+  async softDeleteProgramado(id: string): Promise<void> {
+    const programado = await this.servicioProgramadoRepository.findOne({
+      where: { id },
+    });
+    if (!programado) {
+      throw new NotFoundException(
+        `Servicio programado con ID ${id} no encontrado`,
+      );
+    }
+
+    if (programado.deletedAt) {
+      throw new BadRequestException('El servicio ya fue eliminado');
+    }
+
+    if (programado.estado !== ServicioProgramadoEstado.CANCELADO) {
+      throw new BadRequestException(
+        'Solo se pueden eliminar servicios con estado CANCELADO',
+      );
+    }
+
+    programado.deletedAt = new Date();
+    await this.servicioProgramadoRepository.save(programado);
   }
 }

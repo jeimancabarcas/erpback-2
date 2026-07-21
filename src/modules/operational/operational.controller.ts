@@ -209,4 +209,11 @@ export class OperationalController {
   ) {
     return this.operationalService.cancelProgramado(id, dto);
   }
+
+  @Delete('servicio-programados/:id')
+  softDeleteProgramado(
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.operationalService.softDeleteProgramado(id);
+  }
 }
